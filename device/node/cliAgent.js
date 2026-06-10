@@ -124,7 +124,12 @@ class CliAgent {
       "--permission-mode", "bypassPermissions",
       "--max-turns", String(this.effort === "quick" ? 16 : this.effort === "meticulous" ? 48 : 30), // effort scales the iteration budget
       "--append-system-prompt", systemPrompt,
-      "--model", this.model,
+      // NO --model flag: subscription mode runs on the account's default model.
+      // (The model picker applies to API-key/local modes.) Keeping the spawn
+      // minimal matters because subscription OAuth is fragile: the refresh token
+      // ROTATES on use, and several Claude apps sharing one login (this device +
+      // a Claude Code terminal session) can race the rotation and corrupt the
+      // stored credential — after which EVERY call 401s until `claude` /login.
     ];
     if (this.sessionId) args.push("--resume", this.sessionId);
 
@@ -159,7 +164,7 @@ class CliAgent {
             const msg = String(res.result || ("claude error " + (res.api_error_status || code)));
             let hint = "";
             if (/organization|subscription|disabled|API key|invalid_request|403/i.test(msg)) hint = "  →  Open ⚙ Settings in this panel, switch 'Sign in with' to API key, paste an sk-ant- key, Save.";
-            else if (res.api_error_status === 401 || /not logged in|login|credential|oauth/i.test(msg)) hint = "  →  this machine isn't signed in: open Terminal, run `claude`, and log in with YOUR Claude account (Pro/Max). Then try again — or switch to API key in ⚙ Settings.";
+            else if (res.api_error_status === 401 || /401|not logged in|login|credential|oauth|authenticate/i.test(msg)) hint = "  →  your Claude login token expired or got corrupted (happens when several Claude apps share one login). Fix: open Terminal, run `claude`, type /login and sign in with YOUR account — then this works again. Or switch to API key in ⚙ Settings.";
             else if (/model|not found|unknown/i.test(msg)) hint = "  →  this model may not be available on your plan — pick another model in ⚙ Settings.";
             onError(new Error(msg + hint));
           } else {

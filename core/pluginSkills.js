@@ -74,6 +74,15 @@ const SEEDS = {
     params: "Per band: Frequency/Gain/Q/Shape (analog/digital modes, Baxandall shelves are great for broad master moves), Mid/Side mode.",
     recipes: { "master low-end control": "Baxandall low shelf ±1–2dB; Side high-pass ~120Hz keeps lows mono" },
   },
+  diva: {
+    name: "u-he Diva", kind: "analog-modelled synth (VA)",
+    params: "OSC section (model select: Triple VCO/Dual VCO…; per-osc Tune (semis) + fine, waveform select/blend, osc Volume mix), Filter (ladder/cascade models, Cutoff, Resonance, key follow), Env 1 (amp ADSR) / Env 2 (mod ADSR), 2 LFOs (Rate sync'd or Hz, waveform, Depth, assignable in the mod slots: LFO→osc Tune/Cutoff/etc.), Glide, Voice mode + Voice Detune ('analog' spread), Quality (use 'great' not 'divine' while tracking — CPU).",
+    recipes: {
+      "drifting analog twin-saw (the dotted-8ths pad/lead)": "Dual/Triple VCO, BOTH oscs = saw, same Tune, mix 50/50; LFO 1 → Osc 2 Tune, TRIANGLE, rate ~0.05–0.1 Hz (unsynced), depth tiny (±3–8 cents) so osc 2 slowly drifts up then down against osc 1 — the beating IS the analog drift; add Voice Detune ~10–20% for more instability; amp env: medium attack (~50ms), long release; THEN in Live: Delay synced to DOTTED 8THS (feedback 35–50%, dry/wet ~25%) + a BIG reverb send (decay 4–8s, dry/wet send generous) — the user's 'lots of reverb' analog drift sound",
+      "fat analog bass": "Triple VCO, saw+saw+sub-ish square, slight detune, ladder filter cutoff low-mid with env 2 → cutoff for the bite, mono + glide",
+    },
+    note: "It's a VST — the user must Configure the knobs (osc tunes, cutoff, LFO rate/depth) before Claude can turn them; relay the Configure steps once.",
+  },
   kickstart: {
     name: "Nicky Romero Kickstart (1/2)", kind: "one-knob sidechain pump",
     params: "MIX (the pump depth — the one knob), curve/slope selector (duck shape), Rate (1/4, 1/2, 1 bar; v2 adds custom curves, MIDI trigger and routing).",
