@@ -1,0 +1,16 @@
+node_modules/
+.DS_Store
+
+# build artifacts — baked by scripts/install.sh with machine-local absolute paths
+device/*.amxd
+device/*.amxd.bak
+
+# local tooling databases (not part of the project)
+agentdb.rvf
+agentdb.rvf.lock
+ruvector.db
+**/ruvector.db
+
+# python bytecode
+__pycache__/
+*.pyc

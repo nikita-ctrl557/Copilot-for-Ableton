@@ -1,0 +1,558 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Claude Copilot</title>
+<style>
+  :root{--bg:#1b1b1b;--panel:#232323;--panel2:#2b2b2b;--line:#383838;--text:#e8e8e8;--dim:#9a9a9a;
+        --accent:#ff764d;--accent2:#5ea0ff;--ok:#4caf78;--err:#e0604d;--user:#2f3a46;}
+  *{box-sizing:border-box;} html,body{margin:0;height:100%;}
+  body{background:var(--bg);color:var(--text);display:flex;flex-direction:column;height:100vh;overflow:hidden;
+       font:12px/1.4 -apple-system,"Ableton Sans","Helvetica Neue",Arial,sans-serif;}
+  header{display:flex;align-items:center;gap:7px;padding:5px 9px;background:var(--panel);border-bottom:1px solid var(--line);flex:0 0 auto;}
+  header .logo{width:14px;height:14px;border-radius:3px;background:var(--accent);flex:0 0 auto;}
+  header h1{font-size:12px;margin:0;font-weight:600;}
+  header .spacer{flex:1;}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--err);display:inline-block;}
+  .dot.on{background:var(--ok);}
+  .pill{display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--dim);background:var(--panel2);padding:2px 6px;border-radius:99px;border:1px solid var(--line);}
+  .ic-btn{cursor:pointer;color:var(--dim);padding:1px 5px;border-radius:4px;font-size:13px;}
+  .ic-btn:hover{background:var(--panel2);color:var(--text);}
+  .ic-btn.rec{color:var(--accent);animation:pulse 1s ease-in-out infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.4;}}
+
+  .composer{flex:0 0 auto;padding:7px 9px;background:var(--panel);border-bottom:1px solid var(--line);}
+  .inputrow{display:flex;gap:7px;align-items:flex-end;}
+  textarea{flex:1;resize:none;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:7px;
+           padding:7px 9px;font:inherit;max-height:120px;min-height:32px;outline:none;}
+  textarea:focus{border-color:var(--accent);}
+  button.send{background:var(--accent);color:#1b1b1b;border:0;border-radius:7px;padding:0 13px;height:32px;font-weight:600;cursor:pointer;}
+  button.send:disabled{opacity:.5;cursor:default;}
+  button.send.stopbtn{background:var(--err);color:#fff;}
+
+  #log{flex:1 1 auto;min-height:0;overflow-y:auto;padding:9px;}
+  .msg{max-width:92%;margin:6px 0;padding:6px 9px;border-radius:9px;white-space:pre-wrap;word-wrap:break-word;}
+  .msg.user{background:var(--user);margin-left:auto;border-bottom-right-radius:3px;}
+  .msg.assistant{background:var(--panel);border:1px solid var(--line);border-bottom-left-radius:3px;}
+  .tool{display:flex;gap:7px;align-items:flex-start;margin:4px 0 4px 2px;font-size:11px;color:var(--dim);}
+  .tool .ic{color:var(--accent);}
+  .tool code{color:var(--text);background:var(--panel2);padding:1px 4px;border-radius:4px;font-size:10px;}
+  .tool.done .ic{color:var(--ok);} .tool.err .ic{color:var(--err);}
+  .empty{color:var(--dim);text-align:center;margin-top:6px;padding:0 12px;}
+  .empty h2{color:var(--text);font-weight:600;font-size:13px;margin:0 0 2px;}
+  .chips{display:flex;flex-wrap:wrap;gap:5px;justify-content:center;margin-top:8px;}
+  .chip{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:99px;padding:4px 9px;font-size:11px;cursor:pointer;}
+  .chip:hover{border-color:var(--accent);}
+
+  .settings{position:absolute;inset:0;background:var(--bg);display:none;flex-direction:column;z-index:5;}
+  .settings.open{display:flex;}
+  .settings .bar{display:flex;align-items:center;gap:7px;padding:6px 9px;background:var(--panel);border-bottom:1px solid var(--line);flex:0 0 auto;}
+  .settings .bar h3{margin:0;font-size:12px;flex:1;}
+  .settings .bar button{border-radius:6px;padding:5px 11px;border:1px solid var(--line);cursor:pointer;font:inherit;font-size:12px;}
+  .settings .bar .primary{background:var(--accent);color:#1b1b1b;border:0;font-weight:600;}
+  .settings .bar .ghost{background:transparent;color:var(--text);}
+  .settings .body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:9px 11px;}
+  .settings label{display:block;font-size:10px;color:var(--dim);margin:9px 0 3px;}
+  .settings input,.settings select{width:100%;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:7px;font:inherit;outline:none;}
+  .seg{display:flex;gap:5px;margin-top:3px;}
+  .seg .opt{flex:1;border:1px solid var(--line);background:var(--panel2);border-radius:6px;padding:7px;text-align:center;cursor:pointer;font-size:11px;}
+  .seg .opt.sel{border-color:var(--accent);color:var(--text);background:#34291f;}
+  .hint{font-size:10px;color:var(--dim);margin-top:6px;line-height:1.35;}
+  .hidden{display:none!important;}
+  .beta{display:inline-block;background:#7a5a16;color:#ffd27a;border:1px solid #a87f2a;border-radius:4px;
+        font-size:8px;font-weight:700;letter-spacing:.06em;padding:1px 4px;vertical-align:1px;margin-left:4px;}
+
+  /* favorite-plugins editor (settings) */
+  .favrow{display:flex;gap:6px;margin-top:4px;}
+  .favrow input{flex:1;}
+  .favrow button{border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:6px;padding:0 12px;cursor:pointer;font:inherit;}
+  .favchips{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px;}
+  .favchip{display:inline-flex;align-items:center;gap:6px;background:var(--panel2);border:1px solid var(--line);border-radius:99px;padding:3px 9px;font-size:11px;}
+  .favchip .x{cursor:pointer;color:var(--dim);font-weight:700;}
+  .favchip .x:hover{color:var(--err);}
+
+  /* user skills editor (settings) */
+  .skillslist{margin-top:5px;display:flex;flex-direction:column;gap:5px;}
+  .skillrow{border:1px solid var(--line);border-radius:7px;background:var(--panel2);}
+  .skillrow .head{display:flex;align-items:center;gap:7px;padding:6px 9px;cursor:pointer;font-size:11px;}
+  .skillrow .head b{flex:1;}
+  .skillrow .head .meta{color:var(--dim);font-size:10px;}
+  .skillrow .head .del{cursor:pointer;color:var(--dim);font-weight:700;}
+  .skillrow .head .del:hover{color:var(--err);}
+  .skillrow textarea{width:100%;min-height:110px;background:var(--bg);color:var(--text);border:0;border-top:1px solid var(--line);
+    border-radius:0 0 7px 7px;padding:7px 9px;font:11px/1.45 ui-monospace,Menlo,monospace;resize:vertical;outline:none;display:none;}
+  .skillrow.open textarea{display:block;}
+  .skillrow .saverow{display:none;padding:5px 9px;text-align:right;}
+  .skillrow.open .saverow{display:block;}
+  .skillrow .saverow button{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:6px;padding:3px 12px;cursor:pointer;font:inherit;font-size:11px;}
+
+  /* expandable project / per-track info panel */
+  .infopanel{flex:0 0 auto;max-height:46%;overflow-y:auto;background:var(--panel);border-bottom:1px solid var(--line);padding:7px 9px;}
+  .infopanel h4{margin:2px 0 6px;font-size:11px;color:var(--dim);font-weight:600;letter-spacing:.04em;}
+  .inforow{display:flex;align-items:center;gap:7px;padding:4px 6px;border:1px solid var(--line);border-radius:7px;margin:4px 0;background:var(--panel2);font-size:11px;}
+  .inforow .nm{font-weight:600;min-width:90px;}
+  .inforow .meta{color:var(--dim);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .inforow .lvl{width:64px;height:7px;background:#181818;border-radius:4px;overflow:hidden;flex:0 0 auto;}
+  .inforow .lvl i{display:block;height:100%;background:linear-gradient(90deg,var(--ok),#d3b03a 70%,var(--err));width:0%;}
+  .inforow.expanded{flex-wrap:wrap;}
+  .inforow .detail{flex-basis:100%;color:var(--dim);font-size:10px;line-height:1.45;padding-top:3px;border-top:1px dashed var(--line);margin-top:3px;white-space:normal;}
+  .infohead{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text);margin-bottom:4px;}
+  .infohead .pillv{background:var(--panel2);border:1px solid var(--line);border-radius:99px;padding:2px 8px;font-size:10px;color:var(--dim);}
+  .dropzone{outline:2px dashed var(--accent);outline-offset:-4px;}
+
+  /* working / loading indicator */
+  .working{display:flex;align-items:center;gap:8px;padding:5px 10px;background:var(--panel);border-bottom:1px solid var(--line);font-size:11px;color:var(--dim);flex:0 0 auto;}
+  .working.hidden{display:none;}
+  .tdots{display:inline-flex;gap:4px;}
+  .tdots i{width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block;animation:tb 1.1s infinite ease-in-out;}
+  .tdots i:nth-child(2){animation-delay:.18s;} .tdots i:nth-child(3){animation-delay:.36s;}
+  @keyframes tb{0%,70%,100%{opacity:.25;transform:scale(.7);}35%{opacity:1;transform:scale(1);}}
+</style>
+</head>
+<body>
+  <header>
+    <div class="logo"></div><h1>Claude Copilot</h1>
+    <div class="spacer"></div>
+    <span class="pill"><span id="dot-agent" class="dot"></span> agent</span>
+    <span class="pill"><span id="dot-live" class="dot"></span> live</span>
+    <span class="ic-btn" id="info" title="Project info (song + per-track details)">📊</span>
+    <span class="ic-btn" id="mic" title="Voice input (speak a command)">🎤</span>
+    <span class="ic-btn" id="popout" title="Open big resizable window">⤢</span>
+    <span class="ic-btn" id="gear" title="Settings">⚙</span>
+  </header>
+
+  <div id="infopanel" class="infopanel hidden"><div class="infohead">loading project info…</div></div>
+
+  <div class="composer">
+    <div class="inputrow">
+      <textarea id="input" placeholder="what's on each track?" rows="1"></textarea>
+      <span class="ic-btn" id="attach" title="Attach an audio file (or drag one anywhere)" style="align-self:center;">📎</span>
+      <span class="ic-btn" id="paste" title="Paste from clipboard" style="align-self:center;">📋</span>
+      <button class="send" id="send">Send</button>
+    </div>
+    <input type="file" id="fileinput" accept=".wav,.aif,.aiff,.mp3,.m4a,.flac,.ogg,audio/*" style="display:none;" />
+  </div>
+
+  <div id="working" class="working hidden"><span class="tdots"><i></i><i></i><i></i></span> <span id="working-label">Thinking…</span></div>
+
+  <div id="log">
+    <div class="empty" id="empty">
+      <h2>Producer-in-the-box.</h2>
+      <div>Chords, sounds, mixing, MIDI — just ask. Tap ⤢ for a big window.</div>
+      <div class="chips" id="chips"></div>
+    </div>
+  </div>
+
+  <div class="settings" id="settings">
+    <div class="bar">
+      <h3>Settings</h3>
+      <button class="ghost" id="cancel">Cancel</button>
+      <button class="primary" id="save">Save</button>
+    </div>
+    <div class="body">
+      <label style="display:flex;align-items:center;gap:8px;">Setup checklist <span id="setup-refresh" style="cursor:pointer;color:var(--accent2);font-size:10px;">↻ refresh</span></label>
+      <div id="setupbox" style="background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:11px;line-height:1.7;">checking…</div>
+
+      <label>Microphone (voice input — records the Mac input directly, NOT through Ableton)</label>
+      <select id="micsel"><option value="">(auto-detect)</option></select>
+      <div class="hint">If voice fails: System Settings ▸ Privacy &amp; Security ▸ Microphone ▸ allow Ableton Live. Voice needs ffmpeg + whisper (brew install ffmpeg openai-whisper).</div>
+
+      <label>Sign in with</label>
+      <div class="seg" id="authseg">
+        <div class="opt sel" data-auth="subscription">Claude subscription</div>
+        <div class="opt" data-auth="apikey">API key</div>
+        <div class="opt" data-auth="local">Local LLM<span class="beta">BETA</span></div>
+      </div>
+      <div class="hint" id="sub-hint">Uses your Claude Code login (Pro/Max plan) — no API key, billed to your subscription.</div>
+      <div id="key-wrap" class="hidden">
+        <label>Anthropic API key</label>
+        <input id="apikey" type="password" placeholder="sk-ant-…" />
+        <div class="hint">Pay-per-token. Stored locally in ~/.claude-copilot/config.json.</div>
+      </div>
+      <div id="local-wrap" class="hidden">
+        <label>Local LLM provider <span class="beta">BETA</span></label>
+        <select id="localprovider">
+          <option value="ollama">Ollama — beta, untested</option>
+          <option value="lmstudio">LM Studio — beta, untested</option>
+          <option value="llamacpp">llama.cpp (llama-server) — beta, untested</option>
+          <option value="jan">Jan — beta, untested</option>
+          <option value="gpt4all">GPT4All — beta, untested</option>
+        </select>
+        <label>Server URL</label>
+        <input id="localurl" type="text" placeholder="http://127.0.0.1:11434/v1" />
+        <label>Model name (as loaded in your local server)</label>
+        <input id="localmodel" type="text" placeholder="e.g. llama3.1, qwen2.5, mistral…" />
+        <label>API token (optional — only if your server requires one)</label>
+        <input id="localapikey" type="password" placeholder="usually empty for local servers" />
+        <div class="hint">⚠ <b>Beta — we haven't tested these providers yet.</b> Runs entirely on your machine via the provider's OpenAI-compatible API; nothing is sent to Anthropic. Tool calling (what lets the copilot actually control Live) depends on the model — small local models may ignore tools or call them wrong. No web search in local mode. Expect rough edges.</div>
+      </div>
+      <div id="claude-model-wrap">
+      <label>Model</label>
+      <select id="model">
+        <option value="claude-fable-5">Claude Fable 5 (newest, best)</option>
+        <option value="claude-opus-4-8">Claude Opus 4.8</option>
+        <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (fast)</option>
+        <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5 (fastest)</option>
+      </select>
+      </div>
+      <label style="display:flex;align-items:center;gap:7px;margin-top:12px;cursor:pointer;">
+        <input id="autoscan" type="checkbox" style="width:auto;" /> Auto-scan the project for my changes
+      </label>
+      <div class="hint">Watches for tracks/devices you add, rename or remove and keeps the AI's memory in sync. Turn off to stop background polling.</div>
+
+      <label>Favorite plug-ins (Claude may load &amp; use these)</label>
+      <div class="favrow">
+        <input id="favinput" type="text" placeholder="e.g. FabFilter Pro-Q 4, Ozone 11 Maximizer…" />
+        <button id="favadd">Add</button>
+      </div>
+      <div class="favchips" id="favchips"></div>
+      <div class="hint">Exact plug-in names as they appear in Live's browser. Claude prefers these for mixing/mastering — but it can only turn knobs you've <b>Configured</b>: expand the plug-in in Live (wrench icon) → press <b>Configure</b> (green) → touch the knobs you want Claude to control in the plug-in window → press Configure again. Unconfigured plug-ins are visible to Claude but not editable, and it will ask you to configure them.</div>
+
+      <label style="display:flex;align-items:center;gap:8px;">Skills — your own production rules <span id="skill-new" style="cursor:pointer;color:var(--accent2);font-size:10px;">+ new</span> <span id="skill-import" style="cursor:pointer;color:var(--accent2);font-size:10px;">⇪ import file</span></label>
+      <div id="skillslist" class="skillslist"><div class="hint">loading…</div></div>
+      <input type="file" id="skillfile" accept=".md,.txt,text/*" style="display:none;" />
+      <div class="hint">Named text files Claude reads and follows — house rules, reference specs, personal recipes ("my kick chain", "label mix spec"). Reference one by name in a prompt and it's applied; your skills <b>outrank</b> the built-in ones. Edit like a text file; saved to ~/.claude-copilot/skills/.</div>
+
+      <label>Effort</label>
+      <select id="effort">
+        <option value="quick">Quick — just the ask, minimal iteration</option>
+        <option value="standard" selected>Standard — complete + verified (default)</option>
+        <option value="meticulous">Meticulous — research, full checklist, listen until clean</option>
+      </select>
+      <div class="hint">How hard the copilot works per request: scales the iteration budget and how many listen-and-fix passes it runs before answering.</div>
+    </div>
+  </div>
+
+<script>
+const SUGGESTIONS = ["What's on each track?", "Load Wavetable on track 0", "Cmaj7 Am7 Dm7 G7 here"];
+const $ = (id) => document.getElementById(id);
+const log = $("log");
+// transport guess from the environment so a message sent in the first second isn't
+// dropped: jweb loads this page from file:// (max transport); a real browser/pop-out
+// loads it over http (web transport). startTransport() finalizes the choice.
+let streaming = false, working = false, voiceBusy = false, cur = null, authMode = "subscription",
+    TRANSPORT = (location.protocol === "file:") ? "max" : "web";
+let serverPort = 8723, favList = [];
+// the agent's local HTTP server: same-origin in the browser pop-out, explicit port from
+// inside Ableton's jweb (which loads this page from file://)
+function serverBase(){ return TRANSPORT === "web" ? "" : "http://127.0.0.1:" + serverPort; }
+
+function setDot(id, on){ $(id).classList.toggle("on", !!on); }
+function topShow(){ log.scrollTop = 0; }
+function clearEmpty(){ const e=$("empty"); if(e) e.remove(); }
+function addMsg(role, text){ clearEmpty(); const d=document.createElement("div"); d.className="msg "+role; d.textContent=text||""; log.insertBefore(d, log.firstChild); topShow(); return d; }
+function addTool(name){ clearEmpty(); const d=document.createElement("div"); d.className="tool"; d.innerHTML='<span class="ic">●</span><div><b>'+name+'</b> <span class="dt"></span></div>'; log.insertBefore(d, log.firstChild); topShow(); return d; }
+
+// ---- transport: jweb (window.max) OR browser (SSE + fetch) ----
+function post(url, body){ try{ fetch(url,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)}); }catch(e){} }
+function out(sel){
+  const args = Array.prototype.slice.call(arguments, 1);
+  if (TRANSPORT === "max"){ if(window.max&&window.max.outlet) window.max.outlet.apply(window.max, arguments); return; }
+  if (sel==="chat") post("/chat",{text:args[0]});
+  else if (sel==="set_auth") post("/config",{authMode:args[0]});
+  else if (sel==="set_key") post("/config",{apiKey:args[0]});
+  else if (sel==="set_model") post("/config",{model:args[0]});
+  else if (sel==="set_local_provider") post("/config",{localProvider:args[0]});
+  else if (sel==="set_local_url") post("/config",{localBaseUrl:args[0]});
+  else if (sel==="set_local_model") post("/config",{localModel:args[0]});
+  else if (sel==="set_fav_plugins"){ let v=[]; try{v=JSON.parse(args[0]);}catch(e){} post("/config",{favPlugins:v}); }
+  else if (sel==="set_effort") post("/config",{effort:args[0]});
+  else if (sel==="set_local_apikey") post("/config",{localApiKey:args[0]});
+  else if (sel==="refresh_setup") post("/config",{refreshSetup:1});
+  else if (sel==="voice_start"||sel==="voice_stop") post("/voice",{action:sel});
+  else if (sel==="set_autoscan") post("/config",{autoScan:!!args[0]});
+  else if (sel==="set_mic") post("/config",{micIndex:Number(args[0])});
+  else if (sel==="stop") post("/stop",{});
+  // refresh_setup / get_status: status arrives over SSE in the browser window
+  // get_status / popout: no-op in the browser window
+}
+function onUI(){ const s=arguments.length===1?String(arguments[0]):Array.prototype.slice.call(arguments).join(" "); let m; try{m=JSON.parse(s);}catch(e){return;} handle(m); }
+
+function handle(m){
+  switch(m.type){
+    case "status": setDot("dot-agent",true);
+      if(m.port) serverPort=m.port;
+      // while the settings panel is OPEN, a broadcast status (loader coming online,
+      // another window saving) must not clobber the user's unsaved edits — only the
+      // checklist refreshes; form fields apply when the panel is closed.
+      if(!$("settings").classList.contains("open")){
+        if(m.model) $("model").value=m.model;
+        if(m.authMode){authMode=m.authMode; reflectAuth();}
+        if(m.autoScan!==undefined) $("autoscan").checked=!!m.autoScan;
+        if(m.localProvider) $("localprovider").value=m.localProvider;
+        if(m.localBaseUrl!==undefined && m.localBaseUrl) $("localurl").value=m.localBaseUrl;
+        if(m.localModel!==undefined && m.localModel) $("localmodel").value=m.localModel;
+        if(!$("localurl").value) prefillLocalUrl();
+        if(m.favPlugins){ favList=m.favPlugins.slice(); renderFavs(); }
+        if(m.effort) $("effort").value=m.effort;
+      }
+      if(m.setup) renderSetup(m.setup, !!m.needsSetup);
+      if(m.needsSetup || (m.setup && !m.setup.loader)) { if(!setupShown){ setupShown=true; openSettings(); } }
+      break;
+    case "projectChanged": { clearEmpty(); const d=document.createElement("div"); d.className="tool done"; d.innerHTML='<span class="ic">🔄</span><div>You changed the project: <span class="dt"><code>'+esc((m.diffs||[]).join("; "))+'</code></span></div>'; log.insertBefore(d, log.firstChild); topShow(); break; }
+    case "stage": if(working||streaming||voiceBusy) showWorking(m.text||"Working…"); break;
+    case "delta": if(streaming) showWorking("Responding…"); if(!cur) cur=addMsg("assistant",""); cur.textContent+=m.text; topShow(); break;
+    case "tool": setDot("dot-agent",true); if(streaming||working) showWorking("⏳ "+(m.name||"working").replace(/_/g," ")+"…"); addTool(m.name); break;
+    case "toolResult": {
+      const tools=log.querySelectorAll(".tool:not(.done):not(.err)"); const t=tools[0];
+      if(t){ const dt=t.querySelector(".dt");
+        if(m.error){ t.classList.add("err"); t.querySelector(".ic").textContent="✕"; if(dt) dt.innerHTML="<code>"+esc(m.error)+"</code>"; setDot("dot-live",false); }
+        else { t.classList.add("done"); t.querySelector(".ic").textContent="✓"; setDot("dot-live",true); if(m.label) t.querySelector("b").textContent=m.label; if(dt&&m.detail) dt.innerHTML="<code>"+esc(m.detail)+"</code>"; } }
+      // active narration: show the finished action in the status bar while Claude decides the next step
+      if(streaming||working) showWorking((m.error?"✗ ":"✓ ")+(m.label||(m.name||"").replace(/_/g," "))+(m.detail?": "+String(m.detail).slice(0,60):"")+"  →  next…");
+      break; }
+    case "busy": working=!!m.on; if(!m.on){ streaming=false; setSend(true); cur=null; } break; // authoritative work indicator
+    case "done": streaming=false; working=false; cur=null; setSend(true); hideWorking(); break;
+    case "error": streaming=false; working=false; voiceBusy=false; cur=null; setSend(true); hideWorking(); addMsg("assistant","⚠ "+m.message); break;
+    case "voiceState":
+      listening=!!m.listening;
+      voiceBusy=!!(m.listening||m.transcribing);
+      if(m.listening) showWorking("🎤 Recording… click 🎤 again to stop");
+      else if(m.transcribing) showWorking("📝 Transcribing…");
+      $("mic").classList.toggle("rec", !!(m.listening||m.transcribing));
+      $("mic").title = m.transcribing ? "Transcribing…" : (m.listening ? "Recording… click to stop" : "Voice input");
+      break;
+    case "transcript":
+      listening=false; voiceBusy=false; $("mic").classList.remove("rec"); $("mic").title="Voice input";
+      // the recording itself rides along — "make this into a beat" + beatboxing works
+      // because the agent can audio_to_midi the actual audio, not just the words
+      $("input").value=m.text+(m.audioPath?"  [voice recording: "+m.audioPath+"]":""); autosize(); submit();
+      break;
+  }
+}
+
+function setSend(on){ /* the button stays enabled — it doubles as STOP while working */ }
+// PERSISTENT work indicator: a heartbeat re-asserts visibility every second while a
+// request is in flight (so nothing can hide it early) and shows elapsed time so it's
+// clearly alive. It only truly clears on done/error (streaming=false).
+let workStart=0, workLabel="Thinking…";
+function renderWork(){ const el=$("working-label"); if(!el) return; const s=workStart?Math.round((Date.now()-workStart)/1000):0; el.textContent=workLabel+(s>0?"  ·  "+s+"s":""); }
+function showWorking(label){ if(label) workLabel=label; } // visibility handled by the ticker below
+function startWorking(){ workStart=Date.now(); workLabel="Thinking…"; }
+function hideWorking(){ workStart=0; }
+// ALWAYS-ON ticker: the indicator mirrors `working` (the backend's authoritative "busy"
+// signal) every 300ms, so it shows for the ENTIRE time Claude is working and can NEVER
+// get out of sync or vanish when messages stream in. Only the backend ends it.
+setInterval(function(){
+  var w=$("working"); if(!w) return;
+  if(working||voiceBusy){ w.classList.remove("hidden"); renderWork(); } else { w.classList.add("hidden"); }
+  var sb=$("send"); if(sb){ if(working){ sb.textContent="⏹ Stop"; sb.classList.add("stopbtn"); } else { sb.textContent="Send"; sb.classList.remove("stopbtn"); } }
+}, 300);
+function submit(){
+  const t=$("input").value.trim(); if(!t) return;
+  addMsg("user",t); $("input").value=""; autosize();
+  if(working||streaming){ out("chat", t); return; } // busy → backend QUEUES it (runs next)
+  streaming=true; working=true; cur=null; startWorking(); out("chat", t);
+}
+
+function reflectAuth(){
+  document.querySelectorAll("#authseg .opt").forEach(o=>o.classList.toggle("sel", o.dataset.auth===authMode));
+  $("key-wrap").classList.toggle("hidden", authMode!=="apikey");
+  $("sub-hint").classList.toggle("hidden", authMode!=="subscription");
+  $("local-wrap").classList.toggle("hidden", authMode!=="local");
+  $("claude-model-wrap").classList.toggle("hidden", authMode==="local"); // local mode uses its own model field
+}
+// default OpenAI-compatible endpoints for the local runtimes (all beta/untested)
+const LOCAL_DEFAULT_URLS={ollama:"http://127.0.0.1:11434/v1",lmstudio:"http://127.0.0.1:1234/v1",llamacpp:"http://127.0.0.1:8080/v1",jan:"http://127.0.0.1:1337/v1",gpt4all:"http://127.0.0.1:4891/v1"};
+function prefillLocalUrl(){ const u=LOCAL_DEFAULT_URLS[$("localprovider").value]; if(u) $("localurl").value=u; }
+$("localprovider").onchange=prefillLocalUrl;
+
+// ---- setup guide: live checklist + mic picker ----
+let setupShown=false;
+function renderSetup(s, needsKey){
+  const ok=(b)=>b?'<span style="color:var(--ok)">✓</span>':'<span style="color:var(--err)">✗</span>';
+  const rows=[];
+  rows.push(ok(s.loader)+" <b>Ableton loader</b> — "+(s.loader?"connected":"Live ▸ Settings ▸ Link/Tempo/MIDI ▸ a free Control Surface ▸ <b>Claude_Copilot</b> (Input/Output: None), then restart Live"));
+  rows.push(ok(!needsKey)+" <b>Claude</b> — "+(!needsKey?"signed in":"pick sign-in below (subscription, API key, or a local LLM — beta)"));
+  rows.push(ok(s.ffmpeg&&s.whisper)+" <b>Voice</b> — "+((s.ffmpeg&&s.whisper)?"ffmpeg + whisper installed":"run: <code>brew install ffmpeg openai-whisper</code>"));
+  rows.push(ok(s.mics&&s.mics.length)+" <b>Microphone</b> — "+((s.mics&&s.mics.length)?(s.mics.length+" input device(s) found — pick below"):"none found (check mic permission for Ableton Live)"));
+  rows.push('<span style="color:var(--dim)">🎧 Meters — ask the chat to "place meters" so I can hear every track.</span>');
+  const box=$("setupbox"); if(box) box.innerHTML=rows.join("<br>");
+  const sel=$("micsel");
+  if(sel && s.mics){
+    const cur = s.micIndex!=null?String(s.micIndex):(sel.value||"");
+    sel.innerHTML='<option value="">(auto-detect)</option>'+s.mics.map(m=>'<option value="'+m.index+'">['+m.index+'] '+m.name.replace(/</g,"&lt;")+'</option>').join("");
+    sel.value=cur;
+  }
+}
+function openSettings(){ $("settings").classList.add("open"); }
+function closeSettings(){ $("settings").classList.remove("open"); }
+$("gear").onclick=()=>{ openSettings(); loadSkills(); }; $("cancel").onclick=closeSettings;
+$("popout").onclick=()=>out("popout");
+
+// voice input — recorded + transcribed in the NODE backend (ffmpeg + local whisper).
+// Ableton's embedded web view (CEF/jweb) has NO browser speech API, so it can't be done
+// here; we just toggle recording and the backend sends back a "transcript" event.
+let listening=false;
+$("mic").onclick=()=>{
+  listening=!listening;
+  $("mic").classList.toggle("rec", listening);
+  $("mic").title = listening ? "Recording… click to stop & transcribe" : "Voice input";
+  out(listening ? "voice_start" : "voice_stop");
+};
+document.querySelectorAll("#authseg .opt").forEach(o=> o.onclick=()=>{ authMode=o.dataset.auth; reflectAuth(); });
+$("save").onclick=()=>{ out("set_auth", authMode);
+  if(authMode==="apikey"){ const k=$("apikey").value.trim(); if(k) out("set_key",k); }
+  if(authMode==="local"){ out("set_local_provider",$("localprovider").value);
+    // an empty URL field means "use the provider default" — send the sentinel so a
+    // previously saved custom URL is actually CLEARED (Max drops empty-string args)
+    const u=$("localurl").value.trim(); out("set_local_url", u||"__default__");
+    out("set_local_model",$("localmodel").value.trim());
+    const lk=$("localapikey").value.trim(); if(lk) out("set_local_apikey",lk); }
+  out("set_fav_plugins", JSON.stringify(favList));
+  out("set_effort", $("effort").value);
+  out("set_model",$("model").value); out("set_autoscan", $("autoscan").checked?1:0); const mv=$("micsel").value; if(mv!=="") out("set_mic", mv); closeSettings(); };
+$("setup-refresh").onclick=()=>{ $("setupbox").textContent="checking…"; out("refresh_setup"); };
+
+function autosize(){ const i=$("input"); i.style.height="auto"; i.style.height=Math.min(120,i.scrollHeight)+"px"; }
+$("input").addEventListener("input",autosize);
+// clipboard: Ableton's embedded web view doesn't route ⌘V/⌘C — handle them in JS
+function insertAtCursor(txt){ const i=$("input"); const s=i.selectionStart??i.value.length, e=i.selectionEnd??i.value.length; i.value=i.value.slice(0,s)+txt+i.value.slice(e); const p=s+txt.length; try{i.setSelectionRange(p,p);}catch{} autosize(); i.focus(); }
+function doPaste(){ try{ navigator.clipboard.readText().then(t=>{ if(t) insertAtCursor(t); }).catch(()=>{ try{ document.execCommand("paste"); }catch(e){} }); }catch(e){ try{ document.execCommand("paste"); }catch(_){} } }
+$("paste").onclick=doPaste;
+$("input").addEventListener("keydown",e=>{
+  const mod=e.metaKey||e.ctrlKey;
+  if(mod&&(e.key==="v"||e.key==="V")){ e.preventDefault(); doPaste(); return; }
+  if(mod&&(e.key==="c"||e.key==="C")){ const i=$("input"); const sel=i.value.slice(i.selectionStart??0,i.selectionEnd??0); if(sel){ e.preventDefault(); try{ navigator.clipboard.writeText(sel); }catch(_){ try{document.execCommand("copy");}catch(__){} } } return; }
+  if(mod&&(e.key==="x"||e.key==="X")){ const i=$("input"); const s=i.selectionStart??0,en=i.selectionEnd??0; const sel=i.value.slice(s,en); if(sel){ e.preventDefault(); try{ navigator.clipboard.writeText(sel); }catch(_){} i.value=i.value.slice(0,s)+i.value.slice(en); try{i.setSelectionRange(s,s);}catch(_){} autosize(); } return; }
+  if(mod&&(e.key==="a"||e.key==="A")){ e.preventDefault(); $("input").select(); return; }
+  if(e.key==="Enter"&&!e.shiftKey){ e.preventDefault(); submit(); }
+});
+$("send").onclick=()=>{ if(working){ out("stop"); return; } submit(); };
+SUGGESTIONS.forEach(s=>{ const c=document.createElement("div"); c.className="chip"; c.textContent=s; c.onclick=()=>{ $("input").value=s; autosize(); $("input").focus(); }; $("chips").appendChild(c); });
+
+// ---- favorite plug-ins editor (settings) ----
+function renderFavs(){
+  const c=$("favchips"); if(!c) return;
+  c.innerHTML="";
+  favList.forEach((f,i)=>{
+    const d=document.createElement("span"); d.className="favchip";
+    const t=document.createElement("span"); t.textContent=f;
+    const x=document.createElement("span"); x.className="x"; x.textContent="×"; x.title="remove";
+    x.onclick=()=>{ favList.splice(i,1); renderFavs(); };
+    d.appendChild(t); d.appendChild(x); c.appendChild(d);
+  });
+}
+$("favadd").onclick=()=>{ const v=$("favinput").value.trim(); if(!v) return; if(!favList.includes(v)) favList.push(v); $("favinput").value=""; renderFavs(); };
+$("favinput").addEventListener("keydown",e=>{ if(e.key==="Enter"){ e.preventDefault(); $("favadd").click(); } });
+
+// ---- attach an audio file (button or drag&drop anywhere) ----
+function uploadAudio(f){
+  if(!f) return;
+  voiceBusy=true; showWorking("📎 uploading "+f.name+"…");
+  fetch(serverBase()+"/upload",{method:"POST",headers:{"x-filename":encodeURIComponent(f.name)},body:f})
+    .then(r=>r.json())
+    .then(j=>{
+      voiceBusy=false;
+      if(!(j&&j.ok)){ addMsg("assistant","⚠ upload failed: "+((j&&j.error)||"unknown")); return; }
+      const curTxt=$("input").value.trim();
+      $("input").value=(curTxt?curTxt+" ":"")+"[attached audio: "+j.path+"]"+(curTxt?"":" — listen to this and tell me what you hear.");
+      autosize(); $("input").focus();
+    })
+    .catch(e=>{ voiceBusy=false; addMsg("assistant","⚠ upload failed: "+e); });
+}
+$("attach").onclick=()=>$("fileinput").click();
+$("fileinput").onchange=()=>{ const f=$("fileinput").files&&$("fileinput").files[0]; if(f) uploadAudio(f); $("fileinput").value=""; };
+["dragover","dragenter"].forEach(ev=>document.body.addEventListener(ev,e=>{
+  if(e.dataTransfer&&Array.prototype.slice.call(e.dataTransfer.types||[]).indexOf("Files")>=0){ e.preventDefault(); document.body.classList.add("dropzone"); }
+}));
+document.body.addEventListener("dragleave",()=>document.body.classList.remove("dropzone"));
+document.body.addEventListener("drop",e=>{
+  document.body.classList.remove("dropzone");
+  const f=e.dataTransfer&&e.dataTransfer.files&&e.dataTransfer.files[0];
+  if(f){ e.preventDefault(); uploadAudio(f); }
+});
+
+// ---- user skills editor (settings → Skills) ----
+function loadSkills(){
+  fetch(serverBase()+"/skills").then(r=>r.json()).then(j=>{
+    const box=$("skillslist"); if(!box) return;
+    box.innerHTML="";
+    if(!(j&&j.ok&&j.skills&&j.skills.length)){ box.innerHTML='<div class="hint">no skills yet — add one with “+ new” or import a .md/.txt file.</div>'; return; }
+    j.skills.forEach(s=>box.appendChild(skillRow(s.name, s.content)));
+  }).catch(()=>{ const box=$("skillslist"); if(box) box.innerHTML='<div class="hint">⚠ can\'t reach the agent server</div>'; });
+}
+function skillRow(name, content){
+  const row=document.createElement("div"); row.className="skillrow";
+  const head=document.createElement("div"); head.className="head";
+  const b=document.createElement("b"); b.textContent=name;
+  const meta=document.createElement("span"); meta.className="meta"; meta.textContent=(content||"").length+" chars";
+  const del=document.createElement("span"); del.className="del"; del.textContent="×"; del.title="delete skill";
+  del.onclick=(e)=>{ e.stopPropagation(); if(!confirm('Delete skill "'+name+'"?')) return;
+    fetch(serverBase()+"/skills",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name,delete:true})}).then(loadSkills); };
+  head.appendChild(b); head.appendChild(meta); head.appendChild(del);
+  const ta=document.createElement("textarea"); ta.value=content||"";
+  const saverow=document.createElement("div"); saverow.className="saverow";
+  const save=document.createElement("button"); save.textContent="Save skill";
+  save.onclick=()=>{ fetch(serverBase()+"/skills",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name,content:ta.value})})
+    .then(r=>r.json()).then(j=>{ meta.textContent=(ta.value||"").length+" chars"+(j&&j.ok?" · saved ✓":" · save failed"); }); };
+  saverow.appendChild(save);
+  head.onclick=()=>row.classList.toggle("open");
+  row.appendChild(head); row.appendChild(ta); row.appendChild(saverow);
+  return row;
+}
+$("skill-new").onclick=()=>{
+  const name=prompt("Skill name (e.g. 'my kick chain', 'label mix spec'):"); if(!name) return;
+  fetch(serverBase()+"/skills",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name,content:"# "+name+"\n\n(write the rules/steps Claude should follow here)"})}).then(loadSkills);
+};
+$("skill-import").onclick=()=>$("skillfile").click();
+$("skillfile").onchange=()=>{
+  const f=$("skillfile").files&&$("skillfile").files[0]; $("skillfile").value="";
+  if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{ fetch(serverBase()+"/skills",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:f.name,content:String(rd.result||"")})}).then(loadSkills); };
+  rd.readAsText(f);
+};
+
+// ---- expandable project / per-track info panel ----
+let infoOpen=false, infoTimer=null;
+$("info").onclick=()=>{
+  infoOpen=!infoOpen;
+  $("infopanel").classList.toggle("hidden",!infoOpen);
+  if(infoOpen){ fetchState(); infoTimer=setInterval(fetchState,3000); }
+  else if(infoTimer){ clearInterval(infoTimer); infoTimer=null; }
+};
+function fetchState(){
+  fetch(serverBase()+"/state").then(r=>r.json()).then(renderState)
+    .catch(()=>{ $("infopanel").innerHTML='<div class="infohead">⚠ can\'t reach the agent server</div>'; });
+}
+function lvlPct(db){ if(db==null||db<=-60) return 0; return Math.max(0,Math.min(100,(db+60)/60*100)); }
+function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
+function rowHtml(t,kind){
+  const meta=[t.role?("["+t.role+"]"):null,(t.devices&&t.devices.length)?t.devices.join(" → "):(kind==="track"?"no devices":null)].filter(Boolean).join("  ·  ");
+  const detail=[t.sound?("sound: "+t.sound):null,t.character?("hearing: "+t.character):null,t.playsAt?("plays: "+t.playsAt):null,
+    (t.clips&&t.clips.length)?("clips: "+t.clips.map(c=>'"'+c.name+'"'+(c.bars?"("+c.bars+"bar)":"")).join(", ")):null,
+    (t.peakDb!=null)?("peak "+t.peakDb+" dB · rms "+t.rmsDb+" dB"):null,
+    t.muted?"MUTED":null,t.soloed?"SOLO":null,t.hasMeter?"🎧 metered":null].filter(Boolean).join("  ·  ");
+  return '<div class="inforow expanded"><span class="nm">'+esc(t.name)+'</span><span class="meta">'+esc(meta)+'</span><span class="lvl"><i style="width:'+lvlPct(t.peakDb)+'%"></i></span>'+(detail?'<span class="detail">'+esc(detail)+'</span>':'')+'</div>';
+}
+function renderState(st){
+  if(!st||!st.ok){ $("infopanel").innerHTML='<div class="infohead">⚠ '+esc((st&&st.error)||"no data — is the Claude_Copilot loader enabled?")+'</div>'; return; }
+  const s=st.session||{}, d=st.direction||{};
+  const dirTxt=[d.genre,d.reference,d.tempo?d.tempo+"bpm":null,d.key?(d.key+" "+(d.mode||"")):null].filter(Boolean).join(" · ");
+  let h='<div class="infohead"><b>'+esc((st.projectKey||"project").replace(/^set:/,""))+'</b>'
+    +'<span class="pillv">'+(s.tempo!=null?s.tempo+" bpm":"–")+'</span>'
+    +'<span class="pillv">key '+esc(s.key||"?")+'</span>'
+    +'<span class="pillv">'+(s.isPlaying?"▶ playing":"■ stopped")+'</span>'
+    +(dirTxt?'<span class="pillv">'+esc(dirTxt)+'</span>':'')+'</div>';
+  h+='<h4>TRACKS</h4>'+((st.tracks||[]).map(t=>rowHtml(t,"track")).join("")||'<div class="infohead">no tracks</div>');
+  if(st.returns&&st.returns.length) h+='<h4>RETURNS</h4>'+st.returns.map(t=>rowHtml(t,"return")).join("");
+  if(st.master) h+='<h4>MASTER</h4>'+rowHtml(st.master,"master");
+  $("infopanel").innerHTML=h;
+}
+
+function startTransport(){
+  var forceWeb = location.search.indexOf("transport=web") >= 0; // floating window / browser
+  if (!forceWeb && window.max && window.max.bindInlet){
+    TRANSPORT="max"; window.max.bindInlet("ui", onUI); out("get_status"); $("popout").style.display="";
+  } else {
+    TRANSPORT="web"; $("popout").style.display="none"; // already a window
+    try { const es=new EventSource("/events"); es.onmessage=(e)=>onUI(e.data); es.onerror=()=>{}; } catch(e){}
+  }
+}
+(function waitMax(n){ if(location.search.indexOf("transport=web")>=0) return startTransport(); if(window.max&&window.max.bindInlet) return startTransport(); if(n>30) return startTransport(); setTimeout(()=>waitMax(n+1),50); })(0);
+reflectAuth();
+</script>
+</body>
+</html>
