@@ -37,7 +37,9 @@ function makeAgent(mode) {
   try {
     if (mode === "apikey") {
       const { Agent } = require("../../core/agent");
-      return new Agent({ apiKey: process.env.ANTHROPIC_API_KEY || cfg.apiKey || "", model, live, effort });
+      const a = new Agent({ apiKey: process.env.ANTHROPIC_API_KEY || cfg.apiKey || "", model, live, effort });
+      a.setPasses(loadCfg().passes);
+      return a;
     }
     if (mode === "local") {
       // BETA: local OpenAI-compatible server. The provider picks the default base
@@ -77,7 +79,24 @@ const web = startWebUI({
   onReady: (port) => { try { fs.mkdirSync(CFG_DIR, { recursive: true }); fs.writeFileSync(path.join(CFG_DIR, "webui.port"), String(port)); } catch {} },
 });
 
-// --- expandable project-info panel: live snapshot + memory + meter levels ---
+// --- expandable project-info panel: live snapshot + memory + FULL meter data ---
+// When two copilot devices run (strip + window), the ClaudeMeter fleet feeds
+// whichever process owns port 8723 — if THIS process has no fresh meter data, it
+// proxies the dump from the primary so the panel never shows empty bars.
+const http = require("http");
+function fetchPrimaryMeters() {
+  return new Promise((resolve) => {
+    const myPort = (web && web.port && web.port()) || 8723;
+    if (myPort === 8723) return resolve(null); // we ARE the primary
+    const req = http.get({ hostname: "127.0.0.1", port: 8723, path: "/meterdump", timeout: 800 }, (r) => {
+      let b = "";
+      r.on("data", (d) => (b += d));
+      r.on("end", () => { try { const j = JSON.parse(b); resolve(j && j.ok ? j.rows : null); } catch { resolve(null); } });
+    });
+    req.on("error", () => resolve(null));
+    req.on("timeout", () => { try { req.destroy(); } catch {} resolve(null); });
+  });
+}
 async function buildPanelState() {
   const meterStore = require("../../core/meterStore");
   let sess = null, tracks = [], returns = [], masterT = null;
@@ -85,10 +104,18 @@ async function buildPanelState() {
   try { const t = await remoteClient.tracks(); if (t && t.ok) { tracks = t.tracks || []; returns = t.returns || []; masterT = t.master || null; } } catch {}
   let mem = { direction: {}, tracks: {} };
   try { mem = projectMemory.load(await projectMemory.projectKey()); } catch {}
+  // meter source: local store, else the primary process's dump
+  let meterByTrack = new Map(meterStore.all().map((e) => [e.track, { ...e, activity: meterStore.activity(e.track) }]));
+  if (!meterByTrack.size) {
+    const remote = await fetchPrimaryMeters();
+    if (remote) meterByTrack = new Map(remote.map((e) => [e.track, e]));
+  }
+  let beatNow = null;
   const deco = (t) => {
-    const m = meterStore.get(t.index) || {};
-    const act = meterStore.activity(t.index);
+    const m = meterByTrack.get(t.index) || {};
+    if (m.beat != null && m.playing) beatNow = m.beat;
     const note = mem.tracks[String(t.name)] || {};
+    const ch = m.character || null;
     return {
       index: t.index, name: t.name, type: t.type,
       devices: (t.devices || []).filter((d) => !/claude\s*meter/i.test(String(d))),
@@ -96,15 +123,19 @@ async function buildPanelState() {
       volume: t.volume, pan: t.pan, muted: !!t.muted, soloed: !!t.soloed,
       role: note.role, sound: note.sound,
       peakDb: m.peakDb, rmsDb: m.rmsDb,
-      character: m.character && m.character.summary,
-      playsAt: act && act.bars,
+      // full spectral read: per-band dB + ratios + plain-language character
+      bands: ch ? { lowDb: ch.lowDb, lowmidDb: ch.lowmidDb, midDb: ch.midDb, highDb: ch.highDb, lowRatio: ch.lowRatio, highRatio: ch.highRatio } : null,
+      character: ch && ch.summary,
+      playsAt: m.activity && m.activity.bars,
     };
   };
-  return {
+  const out = {
     ok: true, session: sess, direction: mem.direction, projectKey: mem.projectKey,
     favPlugins: loadCfg().favPlugins || [],
     tracks: tracks.map(deco), returns: returns.map(deco), master: masterT ? deco(masterT) : null,
   };
+  out.beat = beatNow;
+  return out;
 }
 
 // Broadcast every UI event to BOTH the in-Ableton jweb and any open browser windows.
@@ -147,7 +178,7 @@ function statusObj() {
   const c = loadCfg();
   return { type: "status", ready: true, authMode, model, needsSetup: !hasSetup(), autoScan: autoScanOn(), setup: setupObj(),
     localProvider: c.localProvider || "ollama", localBaseUrl: c.localBaseUrl || "", localModel: c.localModel || "",
-    favPlugins: c.favPlugins || [], effort, port: (web && web.port && web.port()) || 8723 };
+    favPlugins: c.favPlugins || [], effort, passes: c.passes || "auto", port: (web && web.port && web.port()) || 8723 };
 }
 function status() { toUI(statusObj()); }
 
@@ -337,6 +368,11 @@ function handleConfig(obj) {
     saveCfg({ effort });
     if (agent && agent.setEffort) agent.setEffort(effort); else agent = makeAgent(authMode);
   }
+  if (obj.passes !== undefined) { // listen/fix phase count: "auto" or 1..5
+    const p = String(obj.passes) === "auto" ? null : Math.max(1, Math.min(5, parseInt(obj.passes, 10) || 0)) || null;
+    saveCfg({ passes: p });
+    if (agent && agent.setPasses) agent.setPasses(p);
+  }
   if (obj.refreshSetup) { listMics(status); remoteClient.available().then((ok) => { loaderOk = ok; status(); }).catch(() => {}); }
   if (obj.autoScan !== undefined) { saveCfg({ autoScan: !!obj.autoScan }); startAutoScan(); }
   if (obj.micIndex !== undefined) { const v = loadCfg().voice || {}; v.micIndex = Number(obj.micIndex); saveCfg({ voice: v }); }
@@ -354,6 +390,7 @@ Max.addHandler("set_local_model", (m) => handleConfig({ localModel: String(m) })
 Max.addHandler("set_local_apikey", (k) => handleConfig({ localApiKey: String(k) }));
 Max.addHandler("set_fav_plugins", (...args) => { try { handleConfig({ favPlugins: JSON.parse(args.join(" ")) }); } catch {} });
 Max.addHandler("set_effort", (e) => handleConfig({ effort: String(e) }));
+Max.addHandler("set_passes", (p) => handleConfig({ passes: String(p) }));
 Max.addHandler("set_autoscan", (v) => handleConfig({ autoScan: !!Number(v) }));
 Max.addHandler("set_mic", (v) => handleConfig({ micIndex: Number(v) }));
 Max.addHandler("stop", stopRun);

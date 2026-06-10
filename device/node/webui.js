@@ -88,14 +88,35 @@ function startWebUI(hooks) {
       return;
     }
 
+    // raw meter feed (every fresh track entry + its activity timeline). Exists for
+    // two readers: the info panel, and OTHER copilot processes — when two devices
+    // run (strip + window), the meters feed whichever process owns port 8723, so
+    // the second process proxies its meter reads from here.
+    if (req.method === "GET" && url === "/meterdump") {
+      const rows = meterStore.all().map((e) => ({ ...e, activity: meterStore.activity(e.track) }));
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+      res.end(JSON.stringify({ ok: true, rows }));
+      return;
+    }
+
     // USER SKILLS — the settings panel's Skills section: list/read on GET,
     // save {name, content} or delete {name, delete:true} on POST
     if (url === "/skills") {
       const customSkills = require("../../core/customSkills");
       if (req.method === "GET") {
         const skills = customSkills.list().map((s) => ({ ...s, content: (customSkills.get(s.name) || {}).content || "" }));
+        // the BUILT-IN knowledge too, so the settings panel can show everything the
+        // copilot knows: element/technique skills, genre vocabularies, plugin docs,
+        // learned sound recipes
+        let builtin = {};
+        try {
+          const el = require("../../core/elementSkills"), ge = require("../../core/genreSkills");
+          const pl = require("../../core/pluginSkills"), sl = require("../../core/soundLibrary");
+          const known = pl.listKnown();
+          builtin = { elements: el.list(), genres: ge.list(), plugins: known.seeded, learnedPlugins: known.learned, soundRecipes: sl.list() };
+        } catch {}
         res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
-        res.end(JSON.stringify({ ok: true, skills }));
+        res.end(JSON.stringify({ ok: true, skills, builtin }));
         return;
       }
       if (req.method === "POST") {

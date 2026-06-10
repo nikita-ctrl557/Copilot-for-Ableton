@@ -93,7 +93,21 @@ class CliAgent {
     const systemPrompt = SYSTEM + "\n\n" + stateWithEffort;
     const promptText = stateWithEffort + "\n\n---\n" + userText;
 
-    const claudeBin = path.join(process.env.HOME || "", ".local/bin/claude");
+    // find the claude CLI wherever THIS machine has it — every user installs it
+    // differently (native installer, homebrew, npm). Hardcoding one path broke
+    // sign-in for everyone but the original author.
+    const fsx = require("fs");
+    const HOME = process.env.HOME || "";
+    const candidates = [
+      path.join(HOME, ".local/bin/claude"),
+      "/opt/homebrew/bin/claude", "/usr/local/bin/claude", "/usr/bin/claude",
+      path.join(HOME, ".npm-global/bin/claude"), path.join(HOME, "bin/claude"),
+    ];
+    const claudeBin = candidates.find((p) => { try { return fsx.existsSync(p); } catch { return false; } });
+    if (!claudeBin) {
+      onError(new Error("Claude Code CLI not found — subscription mode needs it. Install it (https://claude.com/claude-code), run `claude` once in Terminal and log in with YOUR account, then try again. (Or switch to an API key in ⚙ Settings.)"));
+      onDone(); return;
+    }
     const mcpPath = path.join(__dirname, "mcp-ableton.js");
     const mcpConfig = JSON.stringify({
       mcpServers: { ableton: { command: process.execPath, args: [mcpPath], env: { BRIDGE_PORT: String(this.port) } } },
@@ -145,7 +159,7 @@ class CliAgent {
             const msg = String(res.result || ("claude error " + (res.api_error_status || code)));
             let hint = "";
             if (/organization|subscription|disabled|API key|invalid_request|403/i.test(msg)) hint = "  →  Open ⚙ Settings in this panel, switch 'Sign in with' to API key, paste an sk-ant- key, Save.";
-            else if (res.api_error_status === 401) hint = "  →  run `claude` once in Terminal to refresh your login, or switch to API key in ⚙ Settings.";
+            else if (res.api_error_status === 401 || /not logged in|login|credential|oauth/i.test(msg)) hint = "  →  this machine isn't signed in: open Terminal, run `claude`, and log in with YOUR Claude account (Pro/Max). Then try again — or switch to API key in ⚙ Settings.";
             else if (/model|not found|unknown/i.test(msg)) hint = "  →  this model may not be available on your plan — pick another model in ⚙ Settings.";
             onError(new Error(msg + hint));
           } else {

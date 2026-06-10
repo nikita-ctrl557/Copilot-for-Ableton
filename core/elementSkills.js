@@ -216,6 +216,24 @@ const ELEMENTS = {
     },
   },
 
+  modulation_lfo: {
+    role: "the LFO craft — chronically underused: one slow LFO turns a static patch into a living one, two LFOs at different rates make it organic. Wire with set_modulation (Wavetable matrix); shape via set_device_param ('LFO 1 Rate/Shape/Amount', sync on/off).",
+    checklist: [
+      "EVERY sustained patch carries at least ONE slow LFO (0.05–0.5Hz, depth 0.1–0.3) on filter cutoff, wavetable position or amp — imperceptible as wobble, felt as life.",
+      "RATE CLASSES, pick deliberately: DRIFT 0.05–0.3Hz unsync'd (analog wander — pitch ±3 cents, wt position); GROOVE 1/4–1/8 synced (pump, tremolo, autopan locked to tempo); TEXTURE 1/16–1/32 (ratchety motion, hat-like shimmer on a pad); AUDIO-RATE-ish fast+deep on pitch = FM-ish growl.",
+      "STACK TWO: LFO1 slow on one destination + LFO2 faster on another (e.g. LFO1 0.1Hz→wt position 0.3, LFO2 1/8 synced→filter 0.15) — never both on the same target at similar rates (phasing mush).",
+      "SHAPES are the character: sine = smooth breathing; triangle = even sweep; saw down = rhythmic fall (wobble); square = trance gate/trills; SAMPLE & HOLD = generative randomness (S&H slow on filter = vintage random sweep; on pitch tiny = analog instability).",
+      "GENRE IDIOMS: dubstep wobble = LFO→filter, deep (0.5–0.8), rate AUTOMATED per bar (1/4→1/8→1/16 — write_automation the Rate); techno hypnosis = slow saw→filter over 2–4 bars; trance gate = square 1/16 on amp; reese = two slow detuned LFOs on filter+pitch; ambient = three drifting unsync'd LFOs everywhere.",
+      "ENVELOPE vs LFO: one-shot per-note movement (pluck decay, attack sweep) = ENVELOPE (Env2/Env3→target); continuous/cyclic movement = LFO. Both: env for the hit, LFO for the tail.",
+    ],
+    diagnose: {
+      "patch sounds static/dead": ["wire LFO1→filter or wt position at drift rate, depth 0.15–0.3 (set_modulation), confirm changed:true, audition", "add Env2→filter for per-note motion on top"],
+      "wobble has no groove": ["sync the LFO Rate to tempo (1/4 or 1/8) and automate rate changes per bar for the talking effect"],
+      "movement feels mechanical/loopy": ["unsync one LFO and detune its rate slightly (0.13Hz not 0.125), or switch to S&H", "stack a second slower LFO on a different target"],
+      "pad needs to evolve over 8+ bars": ["very slow LFO (0.03–0.08Hz) on wavetable position + write_automation a filter rise across the section"],
+    },
+  },
+
   mixdown: {
     role: "the MIX PROCESS — balance first, surgery second, polish last. Run this whole sequence before any mastering move; a master can't fix a bad balance.",
     checklist: [
@@ -279,6 +297,7 @@ function getElement(name) {
     side_chain: "sidechain", sidechaining: "sidechain", pump: "sidechain", ducking: "sidechain", duck: "sidechain",
     arrange: "arrangement", timeline: "arrangement", structure: "arrangement", song_structure: "arrangement",
     mixing: "mixdown", mix_down: "mixdown", balance: "mixdown", mix_and_master: "mixdown", levels: "mixdown",
+    lfo: "modulation_lfo", lfos: "modulation_lfo", modulation: "modulation_lfo", wobble: "modulation_lfo", movement: "modulation_lfo",
   }[k];
   return alias ? { element: alias, ...ELEMENTS[alias] } : null;
 }

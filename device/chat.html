@@ -72,6 +72,17 @@
   .favchip .x{cursor:pointer;color:var(--dim);font-weight:700;}
   .favchip .x:hover{color:var(--err);}
 
+  /* settings section navigation (sticky jump chips) */
+  .setnav{position:sticky;top:-9px;background:var(--bg);display:flex;gap:5px;flex-wrap:wrap;padding:6px 0;z-index:3;border-bottom:1px solid var(--line);margin:-9px 0 4px;}
+  /* built-in libraries display */
+  .libgroup{margin-top:6px;}
+  .libgroup .t{font-size:10px;color:var(--dim);margin-bottom:3px;}
+  .libchips{display:flex;flex-wrap:wrap;gap:4px;}
+  .libchips span{background:var(--panel2);border:1px solid var(--line);border-radius:99px;padding:2px 8px;font-size:10px;color:var(--text);}
+  /* per-track spectral mini-view in the info panel */
+  .bandviz{display:flex;flex-direction:column;gap:1px;width:64px;flex:0 0 auto;}
+  .bandviz i{display:block;height:3px;background:var(--accent2);border-radius:2px;width:0%;}
+
   /* user skills editor (settings) */
   .skillslist{margin-top:5px;display:flex;flex-direction:column;gap:5px;}
   .skillrow{border:1px solid var(--line);border-radius:7px;background:var(--panel2);}
@@ -151,6 +162,15 @@
       <button class="primary" id="save">Save</button>
     </div>
     <div class="body">
+      <div class="setnav">
+        <span class="chip" data-nav="setupbox">Setup</span>
+        <span class="chip" data-nav="authseg">Sign-in</span>
+        <span class="chip" data-nav="micsel">Voice</span>
+        <span class="chip" data-nav="favchips">Plug-ins</span>
+        <span class="chip" data-nav="skillslist">Skills</span>
+        <span class="chip" data-nav="builtinskills">Libraries</span>
+        <span class="chip" data-nav="effort">Effort</span>
+      </div>
       <label style="display:flex;align-items:center;gap:8px;">Setup checklist <span id="setup-refresh" style="cursor:pointer;color:var(--accent2);font-size:10px;">↻ refresh</span></label>
       <div id="setupbox" style="background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:8px 10px;font-size:11px;line-height:1.7;">checking…</div>
 
@@ -214,6 +234,9 @@
       <input type="file" id="skillfile" accept=".md,.txt,text/*" style="display:none;" />
       <div class="hint">Named text files Claude reads and follows — house rules, reference specs, personal recipes ("my kick chain", "label mix spec"). Reference one by name in a prompt and it's applied; your skills <b>outrank</b> the built-in ones. Edit like a text file; saved to ~/.claude-copilot/skills/.</div>
 
+      <label>Built-in skills &amp; libraries (what Claude already knows)</label>
+      <div id="builtinskills"><div class="hint">loading…</div></div>
+
       <label>Effort</label>
       <select id="effort">
         <option value="quick">Quick — just the ask, minimal iteration</option>
@@ -221,6 +244,16 @@
         <option value="meticulous">Meticulous — research, full checklist, listen until clean</option>
       </select>
       <div class="hint">How hard the copilot works per request: scales the iteration budget and how many listen-and-fix passes it runs before answering.</div>
+      <label>Work phases (listen → fix passes per request)</label>
+      <select id="passes">
+        <option value="auto" selected>Auto — follow the effort setting</option>
+        <option value="1">1 phase</option>
+        <option value="2">2 phases</option>
+        <option value="3">3 phases</option>
+        <option value="4">4 phases</option>
+        <option value="5">5 phases</option>
+      </select>
+      <div class="hint">Each phase = the copilot re-listens to everything it changed, judges it, and fixes what's wrong before it may answer. More phases = more self-correction (and more time/tokens).</div>
     </div>
   </div>
 
@@ -258,6 +291,7 @@ function out(sel){
   else if (sel==="set_local_model") post("/config",{localModel:args[0]});
   else if (sel==="set_fav_plugins"){ let v=[]; try{v=JSON.parse(args[0]);}catch(e){} post("/config",{favPlugins:v}); }
   else if (sel==="set_effort") post("/config",{effort:args[0]});
+  else if (sel==="set_passes") post("/config",{passes:args[0]});
   else if (sel==="set_local_apikey") post("/config",{localApiKey:args[0]});
   else if (sel==="refresh_setup") post("/config",{refreshSetup:1});
   else if (sel==="voice_start"||sel==="voice_stop") post("/voice",{action:sel});
@@ -286,6 +320,7 @@ function handle(m){
         if(!$("localurl").value) prefillLocalUrl();
         if(m.favPlugins){ favList=m.favPlugins.slice(); renderFavs(); }
         if(m.effort) $("effort").value=m.effort;
+        if(m.passes!==undefined) $("passes").value=String(m.passes||"auto");
       }
       if(m.setup) renderSetup(m.setup, !!m.needsSetup);
       if(m.needsSetup || (m.setup && !m.setup.loader)) { if(!setupShown){ setupShown=true; openSettings(); } }
@@ -402,6 +437,7 @@ $("save").onclick=()=>{ out("set_auth", authMode);
     const lk=$("localapikey").value.trim(); if(lk) out("set_local_apikey",lk); }
   out("set_fav_plugins", JSON.stringify(favList));
   out("set_effort", $("effort").value);
+  out("set_passes", $("passes").value);
   out("set_model",$("model").value); out("set_autoscan", $("autoscan").checked?1:0); const mv=$("micsel").value; if(mv!=="") out("set_mic", mv); closeSettings(); };
 $("setup-refresh").onclick=()=>{ $("setupbox").textContent="checking…"; out("refresh_setup"); };
 
@@ -464,13 +500,33 @@ document.body.addEventListener("drop",e=>{
   if(f){ e.preventDefault(); uploadAudio(f); }
 });
 
-// ---- user skills editor (settings → Skills) ----
+// ---- settings section navigation ----
+document.querySelectorAll(".setnav .chip").forEach(c=>{
+  c.onclick=()=>{ const el=$(c.dataset.nav); if(el) el.scrollIntoView({behavior:"smooth",block:"start"}); };
+});
+
+// ---- user skills editor (settings → Skills) + built-in libraries ----
+function libGroup(title, items){
+  if(!items||!items.length) return "";
+  return '<div class="libgroup"><div class="t">'+esc(title)+' ('+items.length+')</div><div class="libchips">'+items.map(x=>'<span>'+esc(x)+'</span>').join("")+'</div></div>';
+}
 function loadSkills(){
   fetch(serverBase()+"/skills").then(r=>r.json()).then(j=>{
     const box=$("skillslist"); if(!box) return;
     box.innerHTML="";
-    if(!(j&&j.ok&&j.skills&&j.skills.length)){ box.innerHTML='<div class="hint">no skills yet — add one with “+ new” or import a .md/.txt file.</div>'; return; }
-    j.skills.forEach(s=>box.appendChild(skillRow(s.name, s.content)));
+    if(!(j&&j.ok&&j.skills&&j.skills.length)) box.innerHTML='<div class="hint">no skills yet — add one with “+ new” or import a .md/.txt file.</div>';
+    else j.skills.forEach(s=>box.appendChild(skillRow(s.name, s.content)));
+    const bi=$("builtinskills");
+    if(bi&&j&&j.builtin){
+      const b=j.builtin;
+      bi.innerHTML=
+        libGroup("Element & technique skills", b.elements)+
+        libGroup("Genre vocabularies (melodies/bass/chords + famous examples)", b.genres)+
+        libGroup("Plug-in docs (seeded)", b.plugins)+
+        libGroup("Plug-in docs (learned on this machine)", b.learnedPlugins)+
+        libGroup("Researched sound recipes", b.soundRecipes)
+        || '<div class="hint">nothing loaded</div>';
+    }
   }).catch(()=>{ const box=$("skillslist"); if(box) box.innerHTML='<div class="hint">⚠ can\'t reach the agent server</div>'; });
 }
 function skillRow(name, content){
@@ -510,7 +566,7 @@ let infoOpen=false, infoTimer=null;
 $("info").onclick=()=>{
   infoOpen=!infoOpen;
   $("infopanel").classList.toggle("hidden",!infoOpen);
-  if(infoOpen){ fetchState(); infoTimer=setInterval(fetchState,3000); }
+  if(infoOpen){ fetchState(); infoTimer=setInterval(fetchState,1000); } // 1s = live meters feel live
   else if(infoTimer){ clearInterval(infoTimer); infoTimer=null; }
 };
 function fetchState(){
@@ -521,11 +577,21 @@ function lvlPct(db){ if(db==null||db<=-60) return 0; return Math.max(0,Math.min(
 function esc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;"); }
 function rowHtml(t,kind){
   const meta=[t.role?("["+t.role+"]"):null,(t.devices&&t.devices.length)?t.devices.join(" → "):(kind==="track"?"no devices":null)].filter(Boolean).join("  ·  ");
-  const detail=[t.sound?("sound: "+t.sound):null,t.character?("hearing: "+t.character):null,t.playsAt?("plays: "+t.playsAt):null,
+  // full spectral mini-view: 4 band bars (low/lo-mid/mid/high) with real dB values
+  const b=t.bands;
+  const bandPct=(db)=>db==null?0:Math.max(0,Math.min(100,(db+60)/60*100));
+  const bandviz=b?'<span class="bandviz" title="low / lo-mid / mid / high">'
+    +'<i style="width:'+bandPct(b.lowDb)+'%"></i><i style="width:'+bandPct(b.lowmidDb)+'%"></i>'
+    +'<i style="width:'+bandPct(b.midDb)+'%"></i><i style="width:'+bandPct(b.highDb)+'%"></i></span>':"";
+  const detail=[
+    (t.peakDb!=null)?("peak "+t.peakDb+" dB · rms "+t.rmsDb+" dB"):(t.hasMeter?"meter quiet (press ▶ play)":null),
+    b?("bands L "+b.lowDb+" / LM "+b.lowmidDb+" / M "+b.midDb+" / H "+b.highDb+" dB · low "+Math.round((b.lowRatio||0)*100)+"% · high "+Math.round((b.highRatio||0)*100)+"%"):null,
+    t.character?("hearing: "+t.character):null,
+    t.playsAt?("plays: "+t.playsAt):null,
+    t.sound?("sound: "+t.sound):null,
     (t.clips&&t.clips.length)?("clips: "+t.clips.map(c=>'"'+c.name+'"'+(c.bars?"("+c.bars+"bar)":"")).join(", ")):null,
-    (t.peakDb!=null)?("peak "+t.peakDb+" dB · rms "+t.rmsDb+" dB"):null,
-    t.muted?"MUTED":null,t.soloed?"SOLO":null,t.hasMeter?"🎧 metered":null].filter(Boolean).join("  ·  ");
-  return '<div class="inforow expanded"><span class="nm">'+esc(t.name)+'</span><span class="meta">'+esc(meta)+'</span><span class="lvl"><i style="width:'+lvlPct(t.peakDb)+'%"></i></span>'+(detail?'<span class="detail">'+esc(detail)+'</span>':'')+'</div>';
+    t.muted?"MUTED":null,t.soloed?"SOLO":null,t.hasMeter?"🎧":null].filter(Boolean).join("  ·  ");
+  return '<div class="inforow expanded"><span class="nm">'+esc(t.name)+'</span><span class="meta">'+esc(meta)+'</span>'+bandviz+'<span class="lvl"><i style="width:'+lvlPct(t.peakDb)+'%"></i></span>'+(detail?'<span class="detail">'+esc(detail)+'</span>':'')+'</div>';
 }
 function renderState(st){
   if(!st||!st.ok){ $("infopanel").innerHTML='<div class="infohead">⚠ '+esc((st&&st.error)||"no data — is the Claude_Copilot loader enabled?")+'</div>'; return; }
@@ -535,6 +601,7 @@ function renderState(st){
     +'<span class="pillv">'+(s.tempo!=null?s.tempo+" bpm":"–")+'</span>'
     +'<span class="pillv">key '+esc(s.key||"?")+'</span>'
     +'<span class="pillv">'+(s.isPlaying?"▶ playing":"■ stopped")+'</span>'
+    +(st.beat!=null?'<span class="pillv">beat '+Math.round(st.beat*10)/10+' · bar '+(Math.floor(st.beat/4)+1)+'</span>':'')
     +(dirTxt?'<span class="pillv">'+esc(dirTxt)+'</span>':'')+'</div>';
   h+='<h4>TRACKS</h4>'+((st.tracks||[]).map(t=>rowHtml(t,"track")).join("")||'<div class="infohead">no tracks</div>');
   if(st.returns&&st.returns.length) h+='<h4>RETURNS</h4>'+st.returns.map(t=>rowHtml(t,"return")).join("");

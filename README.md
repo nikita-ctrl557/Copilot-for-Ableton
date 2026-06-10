@@ -1,124 +1,55 @@
 # Claude Copilot for Ableton
 
-A chat panel that lives **inside Ableton Live** and has real hands on your session.
-Ask in plain language; Claude reads your tracks, chooses sounds, mixes, tweaks device
-parameters, and writes chords / melodies / MIDI — by actually doing it, not describing it.
+A chat panel that lives **inside Ableton Live 12** with real hands — and real **ears** — on your session. Ask in plain language; Claude writes chords/melodies/basslines/drums, designs sounds, controls devices and plug-ins, **listens to what it made**, and mixes & masters — by actually doing it, then hearing it, then fixing it.
 
-It's a single self-contained Max for Live device. No external app, no server to run,
-no Python — Node is bundled with Max for Live, so the device runs Claude's agent loop
-itself and talks to Live through the Live API.
+It's a self-contained Max for Live device. Node is bundled with Max, so the device runs the agent loop itself and talks to Live through the Live API plus a small Python remote script (the "loader").
 
 ```
-┌──────────────────────── ClaudeCopilot.amxd (one device) ────────────────────────┐
-│                                                                                  │
-│   jweb  ────────────►  node.script (Node-for-Max)  ────────►  v8 (LiveAPI)        │
-│   chat UI   user msg   • Anthropic tool-use loop      reqId    • runs on Live's    │
-│   (chat.html)          • streams tokens back          round-   main thread        │
-│        ◄───────────────  • dispatches tool calls      trip     • notes, mixer,     │
-│           assistant      • chord/mixing engine                 device params,      │
-│           tokens          (core/*.js, pure + tested)           browser/sounds      │
-│                                                                                  │
-└──────────────────────────────────────────────────────────────────────────────────┘
-        ▲                                                            │
-        │ Anthropic Messages API (HTTPS, streaming)                  ▼
-     api.anthropic.com                                          Ableton Live 12
+jweb chat UI ⇄ node.script (agent loop, skills, analysis) ⇄ v8 LiveAPI + Python loader (TCP 9001)
+                          ⇡ HTTP 8723: ClaudeMeter fleet (loudness/spectrum/recording), uploads, info panel
 ```
 
-## What it can do
+## Phase 1 — control ✅
+- **Write music**: chords (voice-led, electronic voicings: low root+octave foundation, rootless colour upstairs, `duo` two-note mode), motif-based melodies (A A' B A'' phrasing), seeded groove-grammar basslines (`tech-house`, `acid`, `rolling`, `garage`…), genre-correct drums with fills + variation.
+- **Sound design**: stock synths (Wavetable/Operator/Drift…) — params, properties, **mod-matrix routing** (`set_modulation`: Env→filter plucks, LFO→wavetable motion), envelopes, complex LFO craft.
+- **Devices & plug-ins**: load/tune stock devices; VST/AU (FabFilter, Ozone, Kickstart…) via Live's Configure flow, with built-in + self-researched plug-in docs; chain reordering; duplicate-load guard.
+- **Session & arrangement**: tracks, clips, automation (write/read/clear), timeline arrangement with genre blueprints, sidechain by design (Kickstart / compressor / Auto Pan / drawn pump).
 
-- **Choose sounds** — `load_instrument` / `load_audio_effect` search Live's browser by
-  description ("warm analog pad", "Glue Compressor") and load onto a track.
-- **Mix individual tracks** — `set_mixer` (volume/pan/sends/mute/solo), `set_eq_band`,
-  `set_compressor`, and generic `set_device_param` for anything else.
-- **Control any device** — `list_devices` / `get_device_params` to discover, then set.
-  VST/AU plug-ins work too once you **Configure** their knobs in Live (the copilot
-  walks you through it); add your go-to plug-ins (FabFilter, Ozone…) as favorites in ⚙.
-- **HEAR the whole set** — `place_meters` drops a ClaudeMeter analyzer on every track,
-  every return bus, and the master: loudness + 4-band spectrum + WHEN in the song each
-  track plays. `record_tracks` multitracks the whole song to wavs and
-  `analyze_recordings` dissects them as a group (full FFT, low-end clashes, active
-  bars) — then it cleans up after itself.
-- **Master a song** — maps every chain (`get_device_chains`), checks plug-in order,
-  reorders with `move_device`, processes the master bus, verifies by listening.
-- **Create notes & chords** — `write_chords` (voice-led, register-aware spread
-  voicings, real cadences), `write_melody` (motif-based A A′ B A″ phrasing), and raw
-  `write_notes` for drums/bass.
-- **Drive the session** — `get_session`, `list_tracks`, `create_track`, `fire_clip`, `transport`.
-- **Use local LLMs (beta)** — ⚙ settings can point the agent at Ollama, LM Studio,
-  llama.cpp, Jan, or GPT4All instead of the Claude API. Untested per provider; tool
-  calling depends on the model.
+## Phase 2 — listening ✅ (real, shipped)
+- **ClaudeMeter** analyzer on every track/return/master: live loudness + 4-band spectrum + song-position activity ("plays bars 1–8, 17–24") + REC.
+- **Multitrack capture**: every track records to its own wav simultaneously; group FFT analysis (balance, fundamental + **tuning vs the detected key**, active sections, low-end clashes); auto-cleanup after.
+- **The enforced loop**: every sound change is tracked; the agent **cannot end a turn without auditioning what it changed** (configurable number of listen→fix phases); `tooQuiet`/silent/character verdicts are work orders.
+- **Key detection from the actual MIDI** (Krumhansl), not Live's scale chooser; beatbox/hum → MIDI; reference audio → recreated beats/sounds; audio attachments analyzed.
+
+## Phase 3 — roadmap 🚧
+- Stem separation of reference tracks (recreate each layer of a song).
+- Audio-to-audio matching EQ against a reference master.
+- Live performance mode (scene-aware jamming, follow actions).
+- Cross-project knowledge (your best patches/grooves reused between songs).
 
 ## Install
-
 ```bash
-node scripts/build-device.js   # bake the .amxd (absolute paths to this repo)
-bash scripts/install.sh        # bake + test + copy into your Ableton User Library
+bash scripts/install.sh   # installs deps, bakes devices, runs tests, copies to User Library
 ```
+Then in Live 12: **User Library ▸ Presets ▸ Audio Effects ▸ Max Audio Effect ▸ Claude Copilot** → drag onto a track. Enable the loader once: Live ▸ Settings ▸ Link/Tempo/MIDI ▸ Control Surface ▸ **Claude_Copilot**, restart Live.
 
-Then in Live 12: browser → **Places ▸ User Library ▸ Presets ▸ Audio Effects ▸ Max
-Audio Effect ▸ Claude Copilot** → drag onto a track. Click ⚙ in the panel and paste your
-Anthropic API key once (stored in `~/.claude-copilot/config.json`, never inside the device).
+**Sign in with YOUR account**: ⚙ Settings → subscription (uses your Claude Code login — run `claude` once in Terminal to sign in), an Anthropic API key, or a **local LLM** (Ollama/LM Studio/llama.cpp/Jan/GPT4All — beta).
 
-> The device loads its brain (`device/chat.html`, `device/node/main.js`,
-> `device/v8/liveapi.js`) from this repo by **absolute path** — no Freeze needed for
-> personal use. If you move the repo, re-run `install.sh`. To share the device with
-> someone else, open it in Max and **Freeze** (bundles the files).
-
-## Try it
-
-- "What's on each track right now?"
-- "Write a dreamy Cmaj7–Am7–Dm7–G7 progression on track 2, voice-led."
-- "Load a warm analog pad on track 3 and play it."
-- "Track 1 sounds muddy — add an EQ Eight and cut the low-mids."
-- "Set up a 4:1 glue compressor on the drum bus with a slow attack."
-- "Write a syncopated 808 bassline in F minor under these chords."
-
-## Layout
-
-| path | what |
-|---|---|
-| `core/theory.js`, `core/chords.js` | music theory + chord/voicing/voice-leading engine (pure, tested) |
-| `core/tools.js` | the tool catalog Claude sees + dispatch to Live ops |
-| `core/agent.js` | Claude tool-use loop (streaming + prompt caching) |
-| `core/anthropic.js` | dependency-free streaming Messages API client |
-| `device/chat.html` | the in-Ableton chat UI (jweb) |
-| `device/node/main.js` | node.script entry: wires UI ↔ agent |
-| `device/node/maxBridge.js` | awaitable request-id bridge to the LiveAPI executor |
-| `device/v8/liveapi.js` | the `v8` LiveAPI executor (runs on Live's main thread) |
-| `tools/amxd.js` | `.amxd` pack/unpack (validated byte-for-byte vs a real device) |
-| `scripts/build-device.js` | generates the `.amxd` patcher |
-| `scripts/test-offline.js` | tool-dispatch tests against a mock Ableton |
+## Settings highlights
+- **Skills**: import/write your own skill files — the copilot reads them and they **outrank** built-ins; built-in skills & libraries are listed too.
+- **Favorite plug-ins**, **Effort** (quick/standard/meticulous), **Work phases** (how many listen→fix passes per request), voice input (local Whisper), project info panel (📊) with live per-track spectrum.
 
 ## Tests
-
 ```bash
-node core/chords.test.js     # 20 music-engine assertions
-node scripts/test-offline.js # 19 tool-dispatch assertions (mock Live)
+node core/chords.test.js && node core/melody.test.js && node core/groove.test.js \
+  && node core/key.test.js && node scripts/test-audio2midi.js && node scripts/test-offline.js
 ```
 
-The Node brain is fully tested offline. The in-Live pieces (jweb / node.script / v8)
-are written to Live-API calls verified against Cycling '74 + Ableton docs, but can only
-be exercised inside Live — see **Troubleshooting** if something doesn't wire up.
-
-## Troubleshooting
-
-- **Panel is blank.** jweb didn't load `chat.html`. Open the device in Max (Edit button),
-  confirm the `url` message points at an existing absolute path. Alternative load message:
-  `readfile <path>`.
-- **"agent" dot stays red.** `node.script` didn't start. In Max's console check for the
-  "Claude Copilot agent started" line. Verify Max's bundled Node is ≥18 (the client uses
-  `https`, so older is usually fine). Confirm the absolute path to `main.js` is correct.
-- **"Ableton" dot goes red on a tool.** The `v8` executor errored. If your Max predates
-  the `v8` object, change `v8` → `js` in `scripts/build-device.js` and re-bake. If a
-  LiveAPI path errors, it's surfaced in the chat with the message.
-- **Nothing happens on a parameter set.** Stock-device parameter names vary; the copilot
-  discovers them at runtime via `get_device_params`. If a name didn't match, it reports a
-  warning — tell it the exact parameter name.
-- **Key issues.** Paste the key via ⚙, or `export ANTHROPIC_API_KEY=…` before launching Live.
-
-## Credits / references
-
-- `.amxd` binary format cross-checked against [ktamas77/js2max](https://github.com/ktamas77/js2max)
-  and a real device, byte-for-byte.
-- Architecture validated against the shipping **Producer Pal** design (Node-for-Max +
-  LiveAPI over patch cords); this is a clean-room reimplementation.
+## Layout
+| path | what |
+|---|---|
+| `core/` | agent loop, tool catalog, music engines, skills (element/genre/plugin/custom), spectral analysis, meter store |
+| `device/` | chat UI, node entry, v8 LiveAPI executor, meter device sources |
+| `remote_script/` | the Python loader (browser loads, params, chains, meters, mod matrix) |
+| `scripts/` | device builders, installer, test suites |
+| `tools/amxd.js` | .amxd pack/unpack |
