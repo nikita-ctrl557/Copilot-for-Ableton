@@ -86,6 +86,34 @@ function frameMag(samples, start, N) {
   return mag;
 }
 
+// time-domain autocorrelation pitch for LOW fundamentals — below ~150Hz the FFT
+// grid is semitones wide (10.8Hz bins at 4096/44.1k), but ACF lags are sample-
+// accurate. Picks the SHORTEST strong lag (not the global max) to dodge the
+// subharmonic-multiple trap.
+function acfHz(s, start, win, sr, minHz, maxHz) {
+  const minLag = Math.floor(sr / maxHz), maxLag = Math.min(Math.floor(sr / minHz), win - 2);
+  let e0 = 0;
+  for (let i = start; i < start + win; i++) e0 += s[i] * s[i];
+  if (e0 / win < 1e-6) return null;
+  const corr = new Float64Array(maxLag + 2);
+  let bc = 0;
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    let c = 0, e1 = 0;
+    for (let i = start; i < start + win - lag; i++) { c += s[i] * s[i + lag]; e1 += s[i + lag] * s[i + lag]; }
+    corr[lag] = c / (Math.sqrt(e0 * e1) || 1e-12);
+    if (corr[lag] > bc) bc = corr[lag];
+  }
+  if (bc < 0.5) return null;
+  let bl = -1;
+  for (let lag = minLag; lag <= maxLag; lag++) {
+    if (corr[lag] >= 0.9 * bc && corr[lag] >= (corr[lag - 1] || 0) && corr[lag] >= (corr[lag + 1] || 0)) { bl = lag; break; }
+  }
+  if (bl < 0) return null;
+  const a = corr[bl - 1] || 0, b = corr[bl], c2 = corr[bl + 1] || 0, den = a - 2 * b + c2;
+  const d = den ? Math.max(-0.5, Math.min(0.5, 0.5 * (a - c2) / den)) : 0;
+  return sr / (bl + d);
+}
+
 // log-spaced perceptual bands (Hz edges)
 const BAND_EDGES = [20, 60, 120, 250, 500, 1000, 2000, 4000, 8000, 16000, 22050];
 const BAND_NAMES = ["sub", "lowbass", "lowmid", "mid", "uppermid", "presence", "brilliance", "high", "air", "ultra"];
@@ -110,11 +138,19 @@ function db(x) { return x <= 1e-12 ? -120 : Math.round(100 * (10 * Math.log10(x)
 function dominantHz(mag, sampleRate, N) {
   const minBin = Math.max(1, Math.floor(25 / (sampleRate / N))); // ignore <25Hz rumble
   const hpsLen = Math.floor(mag.length / 4);
+  let maxMag = 0;
+  for (let i = minBin; i < mag.length; i++) if (mag[i] > maxMag) maxMag = mag[i];
   let bi = minBin, bv = -Infinity;
   for (let i = minBin; i < hpsLen; i++) {
+    // the fundamental must itself be PRESENT — without this floor, a noise bin at
+    // f/2 or f/3 of a pure tone wins purely because one multiple hits the peak
+    if (mag[i] < 0.05 * maxMag) continue;
     const v = Math.log(mag[i] + 1e-12) + Math.log(mag[2 * i] + 1e-12)
             + Math.log(mag[3 * i] + 1e-12) + 0.5 * Math.log(mag[4 * i] + 1e-12);
     if (v > bv) { bv = v; bi = i; }
+  }
+  if (bv === -Infinity) { // nothing passed the floor below hpsLen (very high tones) — fall back to the peak bin
+    for (let i = minBin; i < mag.length - 1; i++) if (mag[i] === maxMag) { bi = i; break; }
   }
   // sub-bin refinement on the raw spectrum around the winner
   const a = Math.log(mag[bi - 1] + 1e-12), b = Math.log(mag[bi] + 1e-12), c = Math.log(mag[bi + 1] + 1e-12);
@@ -139,11 +175,13 @@ function analyze(samples, sampleRate, opts = {}) {
   const frames = [];
   const longBands = new Float64Array(BAND_NAMES.length);
   let domAccum = {};
+  let loudStart = 0, loudRms = 0; // loudest frame → where the ACF low-pitch refinement listens
   for (let start = 0; start + N <= total; start += hop) {
     const mag = frameMag(samples, start, N);
     const bands = bandsFromMag(mag, sampleRate, N);
     let fSq = 0; for (let i = start; i < start + N; i++) fSq += samples[i] * samples[i];
     const frms = Math.sqrt(fSq / N);
+    if (frms > loudRms) { loudRms = frms; loudStart = start; }
     const d = dominantHz(mag, sampleRate, N);
     domAccum[d] = (domAccum[d] || 0) + frms;
     frames.push({ tSec: Math.round((start / sampleRate) * 1000) / 1000, rmsDb: db(frms * frms), bands: Array.from(bands) });
@@ -203,7 +241,14 @@ function analyze(samples, sampleRate, opts = {}) {
   const tailDb = env[env.length - 1];
   const sustained = sustainDb > attackDb - 6 && sustainDb > -48;   // still ringing in the middle
   const plucky = attackDb - sustainDb > 8;                          // big drop after the hit
-  const fundamental = +Object.entries(domAccum).sort((a, b) => b[1] - a[1])[0][0];
+  let fundamental = +Object.entries(domAccum).sort((a, b) => b[1] - a[1])[0][0];
+  // LOW fundamentals (kicks, subs): the FFT grid is semitones-wide down there —
+  // refine with sample-accurate autocorrelation on the loudest stretch
+  if (fundamental < 150) {
+    const win = Math.min(8192, total - loudStart);
+    const r = win > 2048 ? acfHz(samples, loudStart, win, sampleRate, 25, 250) : null;
+    if (r) fundamental = Math.round(r * 10) / 10;
+  }
 
   // human-readable character labels
   const labels = [];
