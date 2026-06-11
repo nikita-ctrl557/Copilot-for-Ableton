@@ -45,8 +45,8 @@ async function decodeAudioPath(file) {
   }
 }
 async function analyzeAudioPath(file, opts) {
-  const { samples, sampleRate } = await decodeAudioPath(file);
-  return spectral.analyze(samples, sampleRate, { fftSize: 4096, ...(opts || {}) });
+  const { samples, sampleRate, left, right } = await decodeAudioPath(file);
+  return spectral.analyze(samples, sampleRate, { fftSize: 4096, left, right, ...(opts || {}) });
 }
 // one bar in seconds: tempo is quarter-note BPM; a bar is sigNum beats of 4/sigDenom
 // quarters each (6/8 at 120 = 3s, not 6s)
@@ -1272,7 +1272,10 @@ async function dispatchInner(name, input, { live }) {
           const tuning = songKey.tuningInfo(prof.fundamentalHz, keyObj);
           rows.push({
             track: f.track, name: f.name, durationSec: prof.durationSec,
-            loudness: prof.loudness, fundamentalHz: prof.fundamentalHz, centroidHz: prof.centroidHz,
+            loudness: prof.loudness, lufs: prof.lufs,
+            stereo: prof.stereo ? prof.stereo.summary : undefined,
+            transientAttackMs: prof.transient ? prof.transient.attackMs : undefined,
+            fundamentalHz: prof.fundamentalHz, centroidHz: prof.centroidHz,
             lowRatio: prof.lowRatio, highRatio: prof.highRatio, balance: prof.balance,
             temporal: { plucky: prof.temporal.plucky, sustained: prof.temporal.sustained },
             playsAt: rangesToBars(prof.activeRanges, tempo, sigNum, sigDenom),
