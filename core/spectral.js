@@ -102,11 +102,25 @@ function bandsFromMag(mag, sampleRate, N) {
 
 function db(x) { return x <= 1e-12 ? -120 : Math.round(100 * (10 * Math.log10(x))) / 100; }
 
-// dominant frequency (rough fundamental) from a magnitude spectrum
+// FUNDAMENTAL from a magnitude spectrum — not the loudest bin (that's often the
+// 2nd/3rd HARMONIC: a kick or bass read an octave/fifth wrong, poisoning the
+// tuning checks). Harmonic Product Spectrum: the true fundamental is the bin
+// whose 1×,2×,3×,4× multiples are ALL strong. Then parabolic interpolation gives
+// sub-bin precision — critical below ~100Hz where one bin spans whole semitones.
 function dominantHz(mag, sampleRate, N) {
-  let bi = 1, bv = 0;
-  for (let i = 1; i < mag.length; i++) if (mag[i] > bv) { bv = mag[i]; bi = i; }
-  return Math.round(bi * (sampleRate / N));
+  const minBin = Math.max(1, Math.floor(25 / (sampleRate / N))); // ignore <25Hz rumble
+  const hpsLen = Math.floor(mag.length / 4);
+  let bi = minBin, bv = -Infinity;
+  for (let i = minBin; i < hpsLen; i++) {
+    const v = Math.log(mag[i] + 1e-12) + Math.log(mag[2 * i] + 1e-12)
+            + Math.log(mag[3 * i] + 1e-12) + 0.5 * Math.log(mag[4 * i] + 1e-12);
+    if (v > bv) { bv = v; bi = i; }
+  }
+  // sub-bin refinement on the raw spectrum around the winner
+  const a = Math.log(mag[bi - 1] + 1e-12), b = Math.log(mag[bi] + 1e-12), c = Math.log(mag[bi + 1] + 1e-12);
+  const den = a - 2 * b + c;
+  const delta = den ? Math.max(-0.5, Math.min(0.5, 0.5 * (a - c) / den)) : 0;
+  return Math.round((bi + delta) * (sampleRate / N) * 10) / 10;
 }
 
 // ---------- the analysis: short-term (over time) + long-term (overall) ----------
