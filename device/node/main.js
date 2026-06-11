@@ -39,6 +39,7 @@ function makeAgent(mode) {
       const { Agent } = require("../../core/agent");
       const a = new Agent({ apiKey: process.env.ANTHROPIC_API_KEY || cfg.apiKey || "", model, live, effort });
       a.setPasses(loadCfg().passes);
+      a.setWorkMode(loadCfg().workMode);
       return a;
     }
     if (mode === "local") {
@@ -178,7 +179,7 @@ function statusObj() {
   const c = loadCfg();
   return { type: "status", ready: true, authMode, model, needsSetup: !hasSetup(), autoScan: autoScanOn(), setup: setupObj(),
     localProvider: c.localProvider || "ollama", localBaseUrl: c.localBaseUrl || "", localModel: c.localModel || "",
-    favPlugins: c.favPlugins || [], effort, passes: c.passes || "auto", port: (web && web.port && web.port()) || 8723 };
+    favPlugins: c.favPlugins || [], effort, passes: c.passes || "auto", workMode: c.workMode || "auto", port: (web && web.port && web.port()) || 8723 };
 }
 function status() { toUI(statusObj()); }
 
@@ -368,6 +369,11 @@ function handleConfig(obj) {
     saveCfg({ effort });
     if (agent && agent.setEffort) agent.setEffort(effort); else agent = makeAgent(authMode);
   }
+  if (obj.workMode !== undefined) { // where new material goes: scenes | timeline | auto
+    const w = ["scenes", "timeline"].includes(String(obj.workMode)) ? String(obj.workMode) : "auto";
+    saveCfg({ workMode: w });
+    if (agent && agent.setWorkMode) agent.setWorkMode(w);
+  }
   if (obj.passes !== undefined) { // listen/fix phase count: "auto" or 1..5
     const p = String(obj.passes) === "auto" ? null : Math.max(1, Math.min(5, parseInt(obj.passes, 10) || 0)) || null;
     saveCfg({ passes: p });
@@ -391,6 +397,7 @@ Max.addHandler("set_local_apikey", (k) => handleConfig({ localApiKey: String(k) 
 Max.addHandler("set_fav_plugins", (...args) => { try { handleConfig({ favPlugins: JSON.parse(args.join(" ")) }); } catch {} });
 Max.addHandler("set_effort", (e) => handleConfig({ effort: String(e) }));
 Max.addHandler("set_passes", (p) => handleConfig({ passes: String(p) }));
+Max.addHandler("set_workmode", (w) => handleConfig({ workMode: String(w) }));
 Max.addHandler("set_autoscan", (v) => handleConfig({ autoScan: !!Number(v) }));
 Max.addHandler("set_mic", (v) => handleConfig({ micIndex: Number(v) }));
 Max.addHandler("stop", stopRun);

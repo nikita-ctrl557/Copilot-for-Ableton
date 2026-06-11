@@ -127,6 +127,7 @@
     <div class="spacer"></div>
     <span class="pill"><span id="dot-agent" class="dot"></span> agent</span>
     <span class="pill"><span id="dot-live" class="dot"></span> live</span>
+    <span class="ic-btn" id="wmode" title="Where new material goes: Auto / Session scenes / Arrangement timeline" style="font-size:10px;letter-spacing:.02em;">AUTO</span>
     <span class="ic-btn" id="info" title="Project info (song + per-track details)">📊</span>
     <span class="ic-btn" id="mic" title="Voice input (speak a command)">🎤</span>
     <span class="ic-btn" id="popout" title="Open big resizable window">⤢</span>
@@ -292,6 +293,7 @@ function out(sel){
   else if (sel==="set_fav_plugins"){ let v=[]; try{v=JSON.parse(args[0]);}catch(e){} post("/config",{favPlugins:v}); }
   else if (sel==="set_effort") post("/config",{effort:args[0]});
   else if (sel==="set_passes") post("/config",{passes:args[0]});
+  else if (sel==="set_workmode") post("/config",{workMode:args[0]});
   else if (sel==="set_local_apikey") post("/config",{localApiKey:args[0]});
   else if (sel==="refresh_setup") post("/config",{refreshSetup:1});
   else if (sel==="voice_start"||sel==="voice_stop") post("/voice",{action:sel});
@@ -307,6 +309,7 @@ function handle(m){
   switch(m.type){
     case "status": setDot("dot-agent",true);
       if(m.port) serverPort=m.port;
+      if(m.workMode){ workMode=m.workMode; reflectWmode(); }
       // while the settings panel is OPEN, a broadcast status (loader coming online,
       // another window saving) must not clobber the user's unsaved edits — only the
       // checklist refreshes; form fields apply when the panel is closed.
@@ -560,6 +563,12 @@ $("skillfile").onchange=()=>{
   rd.onload=()=>{ fetch(serverBase()+"/skills",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({name:f.name,content:String(rd.result||"")})}).then(loadSkills); };
   rd.readAsText(f);
 };
+
+// ---- work-mode button: where new material goes (auto → scenes → timeline) ----
+let workMode="auto";
+const WMODE_LABEL={auto:"AUTO",scenes:"🎛 SCENES",timeline:"📐 TIMELINE"};
+function reflectWmode(){ const b=$("wmode"); if(b){ b.textContent=WMODE_LABEL[workMode]||"AUTO"; b.title="Where new material goes — click to cycle. Now: "+(workMode==="scenes"?"Session scenes (clips/scenes only)":workMode==="timeline"?"Arrangement timeline (everything gets arranged)":"Auto (the AI decides per request)"); } }
+$("wmode").onclick=()=>{ workMode=workMode==="auto"?"scenes":workMode==="scenes"?"timeline":"auto"; reflectWmode(); out("set_workmode", workMode); };
 
 // ---- expandable project / per-track info panel ----
 let infoOpen=false, infoTimer=null;

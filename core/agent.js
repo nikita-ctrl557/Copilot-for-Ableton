@@ -140,6 +140,12 @@ class Agent {
   setModel(m) { this.model = m; }
   setEffort(e) { if (["quick", "standard", "meticulous"].includes(e)) this.effort = e; }
   setPasses(p) { const n = parseInt(p, 10); this.passes = n >= 1 && n <= 5 ? n : null; } // explicit listen/fix phase count; null = follow effort
+  setWorkMode(m) { this.workMode = ["scenes", "timeline"].includes(m) ? m : "auto"; } // where new material goes
+  _workModeLine() {
+    return this.workMode === "scenes" ? "\nWORK TARGET: SESSION SCENES — write clips into session slots and build scenes; do NOT arrange onto the timeline unless asked."
+      : this.workMode === "timeline" ? "\nWORK TARGET: TIMELINE — everything you write must end up ON THE ARRANGEMENT (write the clip, then arrange_clip it at the right bars; session slots are only sketchpads). A part not on the timeline doesn't count as delivered."
+      : "";
+  }
   // effort scales how long the loop may run and how often the listen gate re-triggers
   _maxRounds() { return this.effort === "quick" ? 16 : this.effort === "meticulous" ? 48 : 30; }
   _maxListenGates() { return this.passes || (this.effort === "quick" ? 1 : this.effort === "meticulous" ? 3 : 2); }
@@ -188,7 +194,8 @@ class Agent {
     // refresh the project snapshot ONCE per user turn (not per tool round)
     onStage("Reading your project…");
     try { const s = await projectMemory.buildState(); this._projectState = s.text || ""; } catch { /* keep last */ }
-    if (this._projectState) this._projectState = this._effortLine() + "\n" + this._projectState; else this._projectState = this._effortLine();
+    const head = this._effortLine() + this._workModeLine();
+    this._projectState = this._projectState ? head + "\n" + this._projectState : head;
     this.history.push({ role: "user", content: userText });
 
     try {
