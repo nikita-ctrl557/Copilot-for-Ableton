@@ -93,6 +93,16 @@ function noteEdit(track) {
 }
 function heard(track) { if (track == null) editsSinceListen.clear(); else editsSinceListen.delete(track); }
 function pendingListenChecks() { return [...editsSinceListen.entries()].filter(([, n]) => n > 0).map(([t, n]) => ({ track: t, changes: n })); }
+// CONFIGURE GATE state: everything LOADED this session whose parameters were never
+// touched — effects left flat (a Pro-L 2 at unity masters NOTHING; an unset Buster
+// glues nothing) and instruments still on their default patch (no envelope, no
+// waveform choice, no design). The agent loop refuses to end a turn while any exist.
+function pendingConfigChecks() {
+  const out = [];
+  for (const [track, names] of fxUntouched) if (names && names.length) out.push({ track, kind: "effects", devices: [...names] });
+  for (const [track, touched] of patchTouched) if (touched === false) out.push({ track, kind: "instrument", devices: ["(default patch — no envelope/waveform/design set)"] });
+  return out;
+}
 // tracks where an instrument was loaded but NO parameter was ever designed — review_mix
 // flags these as "still on the DEFAULT patch" (the bare-minimum failure detector)
 const patchTouched = new Map(); // trackIndex -> true once any param/property was set
@@ -510,7 +520,7 @@ async function dispatchInner(name, input, { live }) {
       await setIf(input.gain, ["gain"], "gain");
       await setIf(input.q, ["resonance", "q"], "q");
       if (input.on != null) await setIf(input.on ? 1 : 0, ["filter on", "on"], "on");
-      if (Object.keys(applied).length) fxConfiguredMatch(input.track, /eq/i);
+      if (Object.keys(applied).length) fxConfiguredMatch(input.track, /eq|pro-?q|ozone/i);
       const eqNudge = Object.keys(applied).length ? noteEdit(input.track) : null;
       return { result: { band: b, applied, warnings, ...(eqNudge ? { listenCheck: eqNudge } : {}) }, label: "EQ band", detail: `band ${b}` };
     }
@@ -533,7 +543,7 @@ async function dispatchInner(name, input, { live }) {
         await live.call("set_param", { track: input.track, device: input.device, param: pi, value: val });
         applied[key] = val;
       }
-      if (Object.keys(applied).length) fxConfiguredMatch(input.track, /comp|glue|limit/i);
+      if (Object.keys(applied).length) fxConfiguredMatch(input.track, /comp|glue|limit|pro-?[lc]|buster|maximizer|kickstart/i);
       const compNudge = Object.keys(applied).length ? noteEdit(input.track) : null;
       return { result: { applied, warnings, ...(compNudge ? { listenCheck: compNudge } : {}) }, label: "Compressor", detail: Object.keys(applied).join(", ") };
     }
@@ -558,6 +568,7 @@ async function dispatchInner(name, input, { live }) {
       } catch (e) {
         const r = await live.call("find_and_load", { track: input.track, description: input.description, kind: "instrument" });
         if (r && r.loaded && typeof r.loaded === "object") r.loaded = r.loaded.name || JSON.stringify(r.loaded); // never "[object Object]"
+        if (r && r.loaded) patchTouched.set(input.track, false); // default patch until designed
         return { result: r, label: "Loading instrument", detail: (r && r.loaded) || input.description };
       }
     }
@@ -588,7 +599,9 @@ async function dispatchInner(name, input, { live }) {
         remoteClient.fixMeters().catch(() => {});
         return { result: r, label: "Adding effect", detail: r.ok ? (r.loaded || input.description) : (r.error || "not found") };
       } catch (e) {
-        return { result: await live.call("find_and_load", { track: input.track, description: input.description, kind: "audioEffect" }), label: "Adding effect", detail: input.description };
+        const r = await live.call("find_and_load", { track: input.track, description: input.description, kind: "audioEffect" });
+        if (r && r.loaded && !/claude\s*meter/i.test(String(r.loaded))) fxLoadedAt(input.track, typeof r.loaded === "object" ? (r.loaded.name || input.description) : r.loaded);
+        return { result: r, label: "Adding effect", detail: input.description };
       }
     }
 
@@ -1375,4 +1388,4 @@ async function dispatch(name, input, ctx) {
   catch (e) { try { activityLog.log(name, input, null, e); } catch {} throw e; }
 }
 
-module.exports = { TOOLS, dispatch, pendingListenChecks };
+module.exports = { TOOLS, dispatch, pendingListenChecks, pendingConfigChecks };

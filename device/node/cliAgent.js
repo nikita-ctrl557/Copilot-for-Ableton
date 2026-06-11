@@ -9,7 +9,7 @@
 const net = require("net");
 const path = require("path");
 const { spawn } = require("child_process");
-const { dispatch } = require("../../core/tools");
+const { dispatch, pendingListenChecks, pendingConfigChecks } = require("../../core/tools");
 const { SYSTEM } = require("../../core/agent");
 const projectMemory = require("../../core/projectMemory");
 
@@ -176,6 +176,31 @@ class CliAgent {
         settle();
       });
     });
+
+    // QUALITY GATE (CLI build): the SDK loop injects gates mid-run; here we get the
+    // same enforcement by RESUMING the CLI session — a turn may not end with loaded-
+    // but-unconfigured devices (a limiter at unity, an instrument on its default
+    // patch) or sound changes nobody heard. Budgeted by effort, converges because
+    // configuring + auditioning clears the pending state.
+    const isGate = /^AUTOMATIC QUALITY GATE/.test(userText);
+    if (!isGate) this._gateDepth = 0;
+    const maxGates = this.effort === "quick" ? 1 : this.effort === "meticulous" ? 3 : 2;
+    if (!this._stopped && (this._gateDepth || 0) < maxGates) {
+      const unconf = pendingConfigChecks();
+      const unheard = pendingListenChecks();
+      if (unconf.length || unheard.length) {
+        this._gateDepth = (this._gateDepth || 0) + 1;
+        onStage("Quality gate " + this._gateDepth + " — finishing what was started…");
+        const parts = [];
+        if (unconf.length) parts.push("CONFIGURE GATE — you LOADED these and never set a single parameter (decoration, not production): " +
+          unconf.map((u) => `track ${u.track === -1 ? "MASTER" : u.track}: ${u.devices.join(", ")}`).join(" | ") +
+          ". Dial each in NOW (plugin_skill/device_skill recipes): a LIMITER = push Gain/Threshold until 1–3dB GR (streaming) or 3–6dB (club) and verify the measured level; a bus compressor = ratio/attack/release to 1–2dB glue; a fresh INSTRUMENT = waveform choice + amp envelope (A/D/S/R) + filter + one modulation routing, minimum. changed:true on every set.");
+        if (unheard.length) parts.push("LISTEN GATE — you changed track(s) " + unheard.map((u) => String(u.track)).join(", ") +
+          " without hearing them: audition each, ACT on every verdict (tooQuiet → raise to ≈ -8…-16dB; silent → fix; wrong character → adjust), re-audition.");
+        await this.run("AUTOMATIC QUALITY GATE " + this._gateDepth + " (system, not the user): " + parts.join(" ") + " When everything is configured AND heard, report with the real measured numbers.", cb);
+        return;
+      }
+    }
   }
 }
 

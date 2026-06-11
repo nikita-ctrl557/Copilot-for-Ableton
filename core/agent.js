@@ -5,7 +5,7 @@
 
 const { streamMessage } = require("./anthropic");
 const openaiCompat = require("./openaiCompat");
-const { TOOLS, dispatch, pendingListenChecks } = require("./tools");
+const { TOOLS, dispatch, pendingListenChecks, pendingConfigChecks } = require("./tools");
 const projectMemory = require("./projectMemory");
 
 const SYSTEM = `You are Claude Copilot, an expert music producer and mixing engineer living inside Ableton Live as a chat panel. You have real hands on the user's session through tools.
@@ -21,7 +21,7 @@ DEFINITION OF DONE — stopping early is FAILURE, not efficiency:
 - A "make a track / like <artist>" request needs AT MINIMUM: drums (real kit + write_drums pattern), a bass, chords/harmony, a lead or hook, levels balanced, and a 16+ bar arrangement (arrange_clip) — all in the song's key/tempo.
 - EVERY tonal element gets the FULL chain, every time: synth loaded → patch DESIGNED (oscillator/wavetable choice + amp envelope + filter + MODULATION/movement) → FX where they earn it (EQ/compression for glue/punch, and SPACE via reverb or delay — a dry static patch is unfinished) → audible level.
 - "LAYER it" means literally 2+ instruments playing the same part (e.g. same notes an octave apart, different timbres, one wide + one mono-low). If the user said layer and there's one instrument, you failed.
-- LOADING AN EFFECT IS NOT USING IT. A flat EQ Eight, default Utility, untouched Reverb = decoration, not production — review_mix flags them as UNCONFIGURED. After EVERY load_audio_effect, immediately DIAL IT IN: EQ Eight → set_eq_band (cut the mud ~200–400Hz, high-pass non-bass, shape presence); Reverb → Dry/Wet (10–25% on a send-style insert), Decay, pre-delay; Delay → sync time, feedback, dry/wet; Compressor/Glue → threshold until 2–4dB reduction, ratio, makeup; Saturator → drive + dry/wet; Utility → width/gain with intent. If you won't configure it, don't load it.
+- LOADING AN EFFECT IS NOT USING IT. A flat EQ Eight, default Utility, untouched Reverb = decoration, not production — review_mix flags them as UNCONFIGURED. After EVERY load_audio_effect, immediately DIAL IT IN: EQ Eight → set_eq_band (cut the mud ~200–400Hz, high-pass non-bass, shape presence); Reverb → Dry/Wet (10–25% on a send-style insert), Decay, pre-delay; Delay → sync time, feedback, dry/wet; Compressor/Glue → threshold until 2–4dB reduction, ratio, makeup; Saturator → drive + dry/wet; Utility → width/gain with intent. If you won't configure it, don't load it. The AUTOMATIC QUALITY GATE enforces this: a turn that ends with ANY loaded-but-untouched device (including a master limiter never driven past unity — -3dB peaks is NOT mastered) or unheard changes gets bounced back to you until it's configured and auditioned.
 - AUTO FILTER is your movement workhorse: load 'Auto Filter' on a part that needs motion, set the filter type/freq/resonance, and EITHER enable its LFO (rate synced, amount to taste) for wobble/pulse OR write_automation a Freq sweep for builds. Static parts with no modulation/automation anywhere = unfinished.
 - Drums get velocity dynamics and a fill; basslines lock to the chords; melodies are tonal hooks in key.
 - ONE SOURCE OF HARMONIC TRUTH per turn: decide key+mode+progression ONCE, then pass the EXACT SAME key/mode/chords arrays to write_chords AND write_bassline AND write_melody in that turn. Bass not matching chords = you mixed sources (e.g. an old memory key with a new default). The user's CURRENT request always beats stored memory — if they pivot, update remember{direction} (or forget_project for a full fresh start) BEFORE writing notes.
@@ -242,13 +242,22 @@ class Agent {
           // It RE-TRIGGERS (up to the effort's budget) when the fix pass itself
           // created new unheard changes — reflect, adjust, hear again, converge.
           const unheard = pendingListenChecks();
-          if (unheard.length && this._listenGateCount < this._maxListenGates() && !this._abort) {
+          const unconfigured = pendingConfigChecks();
+          if ((unheard.length || unconfigured.length) && this._listenGateCount < this._maxListenGates() && !this._abort) {
             this._listenGateCount++;
-            onStage("Listen check " + this._listenGateCount + " — hearing what was changed…");
-            this.history.push({ role: "user", content:
-              "AUTOMATIC LISTEN GATE " + this._listenGateCount + " (system, not the user): you changed the sound of track(s) " +
+            onStage("Quality gate " + this._listenGateCount + " — finishing what was started…");
+            const parts = [];
+            if (unconfigured.length) parts.push(
+              "CONFIGURE GATE: you LOADED devices and never set a single parameter — that is decoration, not production: " +
+              unconfigured.map((u) => `track ${u.track === -1 ? "MASTER" : u.track}: ${u.devices.join(", ")}`).join(" | ") +
+              ". Dial each one in NOW (plugin_skill/device_skill have the recipes): a LIMITER means push its Gain/Threshold until the GR meter moves (1–3dB streaming, 3–6dB club) and verify the measured level after — a limiter at unity masters NOTHING; a bus compressor means ratio/attack/release/threshold until 1–2dB of glue; a fresh INSTRUMENT means waveform/oscillator choice + AMP ENVELOPE (attack/decay/sustain/release) + filter + one modulation routing (set_modulation), minimum. Confirm changed:true on every set.");
+            if (unheard.length) parts.push(
+              "LISTEN GATE: you changed the sound of track(s) " +
               unheard.map((u) => `${u.track} (${u.changes} change${u.changes > 1 ? "s" : ""})`).join(", ") +
-              " but never heard the result. Audition each of those tracks NOW and ACT on every verdict — tooQuiet → raise it (set_mixer/patch output) to ≈ -8…-16 dB and re-audition; silent → find why and fix; wrong character (thin/static/harsh vs the brief) → adjust params/modulation and re-audition. Hearing a problem and only DESCRIBING it counts as failure. When everything you changed has been heard and sounds right, give your final answer with the real measured numbers." });
+              " but never heard the result. Audition each NOW and ACT on every verdict — tooQuiet → raise it to ≈ -8…-16 dB and re-audition; silent → find why and fix; wrong character → adjust params/modulation and re-audition. Hearing a problem and only DESCRIBING it counts as failure.");
+            this.history.push({ role: "user", content:
+              "AUTOMATIC QUALITY GATE " + this._listenGateCount + " (system, not the user): " + parts.join(" ") +
+              " When everything is configured AND heard, give your final answer with the real measured numbers." });
             continue;
           }
           onDone(msg); return;
