@@ -179,7 +179,8 @@ function statusObj() {
   const c = loadCfg();
   return { type: "status", ready: true, authMode, model, needsSetup: !hasSetup(), autoScan: autoScanOn(), setup: setupObj(),
     localProvider: c.localProvider || "ollama", localBaseUrl: c.localBaseUrl || "", localModel: c.localModel || "",
-    favPlugins: c.favPlugins || [], effort, passes: c.passes || "auto", workMode: c.workMode || "auto", port: (web && web.port && web.port()) || 8723 };
+    favPlugins: c.favPlugins || [], effort, passes: c.passes || "auto", workMode: c.workMode || "auto",
+    hasDeviceToken: !!c.oauthToken, port: (web && web.port && web.port()) || 8723 };
 }
 function status() { toUI(statusObj()); }
 
@@ -370,6 +371,7 @@ function handleConfig(obj) {
     if (agent && agent.setEffort) agent.setEffort(effort); else agent = makeAgent(authMode);
   }
   if (obj.oauthToken !== undefined) { saveCfg({ oauthToken: String(obj.oauthToken || "") }); } // device's own long-lived login (claude setup-token)
+  if (obj.connectClaude) connectClaude(); // one-click browser sign-in
   if (obj.workMode !== undefined) { // where new material goes: scenes | timeline | auto
     const w = ["scenes", "timeline"].includes(String(obj.workMode)) ? String(obj.workMode) : "auto";
     saveCfg({ workMode: w });
@@ -400,6 +402,44 @@ Max.addHandler("set_effort", (e) => handleConfig({ effort: String(e) }));
 Max.addHandler("set_passes", (p) => handleConfig({ passes: String(p) }));
 Max.addHandler("set_workmode", (w) => handleConfig({ workMode: String(w) }));
 Max.addHandler("set_oauth_token", (t) => handleConfig({ oauthToken: String(t) }));
+Max.addHandler("oauth_connect", () => connectClaude());
+
+// --- ONE-CLICK ACCOUNT CONNECT: runs `claude setup-token` under a pseudo-TTY,
+// the CLI opens the user's browser, they click Authorize, and the token is
+// captured from the PTY log and installed automatically. No Terminal needed.
+let oauthProc = null;
+function connectClaude() {
+  if (oauthProc) { toUI({ type: "stage", text: "already connecting — finish the approval in your browser" }); return; }
+  const { findClaudeBin, extractSetupToken } = require("./cliAgent");
+  const bin = findClaudeBin();
+  if (!bin) { toUI({ type: "error", message: "Claude Code CLI not found on this machine — install it first (https://claude.com/claude-code), then click Connect again. Or use an API key instead." }); return; }
+  const log = path.join(os.tmpdir(), "copilot-oauth-" + Date.now() + ".log");
+  toUI({ type: "stage", text: "🔑 your browser is opening — sign in / click Authorize; I'll capture the token automatically…" });
+  try {
+    oauthProc = spawn("/usr/bin/script", ["-q", log, "sh", "-c", "stty cols 500 rows 50 2>/dev/null; " + JSON.stringify(bin) + " setup-token"], { stdio: "ignore" });
+  } catch (e) { oauthProc = null; toUI({ type: "error", message: "couldn't start the sign-in flow: " + e.message }); return; }
+  const started = Date.now();
+  const cleanup = () => { try { oauthProc && oauthProc.kill(); } catch {} oauthProc = null; try { fs.unlinkSync(log); } catch {} };
+  const timer = setInterval(() => {
+    let raw = "";
+    try { raw = fs.readFileSync(log, "latin1"); } catch {}
+    const tok = raw && extractSetupToken(raw);
+    if (tok) {
+      clearInterval(timer); cleanup();
+      saveCfg({ oauthToken: tok, authMode: "subscription" });
+      authMode = "subscription"; agent = makeAgent(authMode);
+      toUI({ type: "stage", text: "✓ Claude account connected — this device now has its own 1-year login (immune to other apps corrupting it)." });
+      status();
+    } else if (Date.now() - started > 180000) { // 3 min to approve
+      clearInterval(timer); cleanup();
+      toUI({ type: "error", message: "sign-in timed out — click Connect again and approve the browser prompt within 3 minutes (or paste a token from `claude setup-token` manually)." });
+    } else if (oauthProc && oauthProc.exitCode != null && Date.now() - started > 8000 && !raw.includes("at01")) {
+      clearInterval(timer); cleanup();
+      toUI({ type: "error", message: "the sign-in flow exited without a token — run `claude` once in Terminal to make sure the CLI works, then retry." });
+    }
+  }, 1000);
+  if (timer.unref) timer.unref();
+}
 Max.addHandler("set_autoscan", (v) => handleConfig({ autoScan: !!Number(v) }));
 Max.addHandler("set_mic", (v) => handleConfig({ micIndex: Number(v) }));
 Max.addHandler("stop", stopRun);

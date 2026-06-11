@@ -102,17 +102,7 @@ class CliAgent {
     const systemPrompt = SYSTEM + "\n\n" + stateWithEffort;
     const promptText = stateWithEffort + "\n\n---\n" + userText;
 
-    // find the claude CLI wherever THIS machine has it — every user installs it
-    // differently (native installer, homebrew, npm). Hardcoding one path broke
-    // sign-in for everyone but the original author.
-    const fsx = require("fs");
-    const HOME = process.env.HOME || "";
-    const candidates = [
-      path.join(HOME, ".local/bin/claude"),
-      "/opt/homebrew/bin/claude", "/usr/local/bin/claude", "/usr/bin/claude",
-      path.join(HOME, ".npm-global/bin/claude"), path.join(HOME, "bin/claude"),
-    ];
-    const claudeBin = candidates.find((p) => { try { return fsx.existsSync(p); } catch { return false; } });
+    const claudeBin = findClaudeBin();
     if (!claudeBin) {
       onError(new Error("Claude Code CLI not found — subscription mode needs it. Install it (https://claude.com/claude-code), run `claude` once in Terminal and log in with YOUR account, then try again. (Or switch to an API key in ⚙ Settings.)"));
       onDone(); return;
@@ -189,4 +179,36 @@ class CliAgent {
   }
 }
 
-module.exports = { CliAgent };
+// find the claude CLI wherever THIS machine has it — every user installs it
+// differently (native installer, homebrew, npm). Hardcoding one path broke
+// sign-in for everyone but the original author.
+function findClaudeBin() {
+  const fsx = require("fs");
+  const HOME = process.env.HOME || "";
+  const candidates = [
+    path.join(HOME, ".local/bin/claude"),
+    "/opt/homebrew/bin/claude", "/usr/local/bin/claude", "/usr/bin/claude",
+    path.join(HOME, ".npm-global/bin/claude"), path.join(HOME, "bin/claude"),
+  ];
+  return candidates.find((p) => { try { return fsx.existsSync(p); } catch { return false; } }) || null;
+}
+
+// pull the sk-ant-oat01 token out of a `claude setup-token` PTY log. Hard-won:
+// the CLI prints through a TUI that wraps lines AND interleaves escape codes
+// INSIDE the token, so we try a structure-preserving ANSI strip first, then a
+// lossy strip with prefix reconstruction (the lossy pass can eat one char of
+// "oat01" but leaves the body intact). Verified against real captures.
+function extractSetupToken(raw) {
+  const variants = [
+    (s) => s.replace(/\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, "").replace(/\x1b\[[0-9;:?]*[ -\/]*[@-~]/g, "").replace(/\x1b[()][AB012]/g, "").replace(/[\r\n]/g, ""),
+    (s) => s.replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, "").replace(/\x1b./g, "").replace(/[\r\n\s]/g, ""),
+  ];
+  for (const strip of variants) {
+    const t = strip(raw);
+    const m = t.match(/sk-ant-o?at01-([A-Za-z0-9_-]{60,250}?)(?=Store|\s|$)/);
+    if (m && m[1].length >= 60) return "sk-ant-oat01-" + m[1];
+  }
+  return null;
+}
+
+module.exports = { CliAgent, findClaudeBin, extractSetupToken };

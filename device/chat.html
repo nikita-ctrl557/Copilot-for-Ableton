@@ -185,9 +185,10 @@
         <div class="opt" data-auth="apikey">API key</div>
         <div class="opt" data-auth="local">Local LLM<span class="beta">BETA</span></div>
       </div>
-      <div class="hint" id="sub-hint">Uses your Claude Code login (Pro/Max plan) — no API key, billed to your subscription.
-        <br><b>Recommended:</b> give this device its OWN login so other Claude apps can't corrupt it: in Terminal run <code>claude setup-token</code>, approve in the browser, paste the token below.</div>
-      <input id="oauthtoken" type="password" placeholder="device token from `claude setup-token` (optional but recommended)" style="margin-top:5px;" />
+      <div class="hint" id="sub-hint">Uses your Claude Code login (Pro/Max plan) — no API key, billed to your subscription.</div>
+      <button id="oauthconnect" style="width:100%;margin-top:6px;background:var(--accent);color:#1b1b1b;border:0;border-radius:7px;padding:8px;font:inherit;font-weight:600;cursor:pointer;">🔑 Connect Claude account (opens your browser)</button>
+      <div class="hint">One click → sign in / Authorize in the browser → done. The device gets its <b>own 1-year login</b> that other Claude apps can't corrupt. Advanced: you can also paste a token from <code>claude setup-token</code> below.</div>
+      <input id="oauthtoken" type="password" placeholder="(optional) paste a device token manually" style="margin-top:5px;" />
       <div id="key-wrap" class="hidden">
         <label>Anthropic API key</label>
         <input id="apikey" type="password" placeholder="sk-ant-…" />
@@ -297,6 +298,7 @@ function out(sel){
   else if (sel==="set_passes") post("/config",{passes:args[0]});
   else if (sel==="set_workmode") post("/config",{workMode:args[0]});
   else if (sel==="set_oauth_token") post("/config",{oauthToken:args[0]});
+  else if (sel==="oauth_connect") post("/config",{connectClaude:true});
   else if (sel==="set_local_apikey") post("/config",{localApiKey:args[0]});
   else if (sel==="refresh_setup") post("/config",{refreshSetup:1});
   else if (sel==="voice_start"||sel==="voice_stop") post("/voice",{action:sel});
@@ -313,6 +315,7 @@ function handle(m){
     case "status": setDot("dot-agent",true);
       if(m.port) serverPort=m.port;
       if(m.workMode){ workMode=m.workMode; reflectWmode(); }
+      if(m.hasDeviceToken!==undefined){ const b=$("oauthconnect"); if(b) b.textContent=m.hasDeviceToken?"✓ Claude account connected — click to renew":"🔑 Connect Claude account (opens your browser)"; }
       // while the settings panel is OPEN, a broadcast status (loader coming online,
       // another window saving) must not clobber the user's unsaved edits — only the
       // checklist refreshes; form fields apply when the panel is closed.
@@ -433,6 +436,7 @@ $("mic").onclick=()=>{
   out(listening ? "voice_start" : "voice_stop");
 };
 document.querySelectorAll("#authseg .opt").forEach(o=> o.onclick=()=>{ authMode=o.dataset.auth; reflectAuth(); });
+$("oauthconnect").onclick=()=>{ $("oauthconnect").textContent="🔑 opening your browser — approve there…"; out("oauth_connect"); };
 $("save").onclick=()=>{ out("set_auth", authMode);
   if(authMode==="apikey"){ const k=$("apikey").value.trim(); if(k) out("set_key",k); }
   { const t=$("oauthtoken").value.trim(); if(t) out("set_oauth_token", t); }
