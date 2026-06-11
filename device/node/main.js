@@ -369,6 +369,7 @@ function handleConfig(obj) {
     saveCfg({ effort });
     if (agent && agent.setEffort) agent.setEffort(effort); else agent = makeAgent(authMode);
   }
+  if (obj.oauthToken !== undefined) { saveCfg({ oauthToken: String(obj.oauthToken || "") }); } // device's own long-lived login (claude setup-token)
   if (obj.workMode !== undefined) { // where new material goes: scenes | timeline | auto
     const w = ["scenes", "timeline"].includes(String(obj.workMode)) ? String(obj.workMode) : "auto";
     saveCfg({ workMode: w });
@@ -398,6 +399,7 @@ Max.addHandler("set_fav_plugins", (...args) => { try { handleConfig({ favPlugins
 Max.addHandler("set_effort", (e) => handleConfig({ effort: String(e) }));
 Max.addHandler("set_passes", (p) => handleConfig({ passes: String(p) }));
 Max.addHandler("set_workmode", (w) => handleConfig({ workMode: String(w) }));
+Max.addHandler("set_oauth_token", (t) => handleConfig({ oauthToken: String(t) }));
 Max.addHandler("set_autoscan", (v) => handleConfig({ autoScan: !!Number(v) }));
 Max.addHandler("set_mic", (v) => handleConfig({ micIndex: Number(v) }));
 Max.addHandler("stop", stopRun);

@@ -71,11 +71,20 @@ class CliAgent {
     // can carry vars that hijack auth and cause 401s; only HOME (for ~/.claude),
     // a fixed PATH, and LANG are passed. Verified: this authenticates the plan.
     const HOME = process.env.HOME || "";
-    return {
+    const env = {
       HOME,
       PATH: "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:" + HOME + "/.local/bin",
       LANG: "en_US.UTF-8",
     };
+    // THE DEVICE'S OWN LOGIN: a long-lived token from `claude setup-token`, pasted
+    // in ⚙ Settings. It bypasses the shared keychain credential entirely — immune
+    // to the refresh-rotation races that corrupt the login when several Claude
+    // apps (this device + a Claude Code terminal) share one account.
+    try {
+      const tok = JSON.parse(require("fs").readFileSync(require("path").join(HOME, ".claude-copilot", "config.json"), "utf8")).oauthToken;
+      if (tok) env.CLAUDE_CODE_OAUTH_TOKEN = String(tok);
+    } catch {}
+    return env;
   }
 
   async run(userText, cb = {}) {
@@ -164,7 +173,7 @@ class CliAgent {
             const msg = String(res.result || ("claude error " + (res.api_error_status || code)));
             let hint = "";
             if (/organization|subscription|disabled|API key|invalid_request|403/i.test(msg)) hint = "  →  Open ⚙ Settings in this panel, switch 'Sign in with' to API key, paste an sk-ant- key, Save.";
-            else if (res.api_error_status === 401 || /401|not logged in|login|credential|oauth|authenticate/i.test(msg)) hint = "  →  your Claude login token expired or got corrupted (happens when several Claude apps share one login). Fix: open Terminal, run `claude`, type /login and sign in with YOUR account — then this works again. Or switch to API key in ⚙ Settings.";
+            else if (res.api_error_status === 401 || /401|not logged in|login|credential|oauth|authenticate/i.test(msg)) hint = "  →  the shared Claude login is corrupted. PERMANENT FIX: open Terminal, run `claude setup-token`, approve in the browser, then paste the token in ⚙ Settings → Sign in (Device token field) — the device gets its OWN login that other Claude apps can't break. (Quick fix: `claude` → /login. Or switch to API key.)";
             else if (/model|not found|unknown/i.test(msg)) hint = "  →  this model may not be available on your plan — pick another model in ⚙ Settings.";
             onError(new Error(msg + hint));
           } else {
