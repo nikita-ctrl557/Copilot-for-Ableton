@@ -148,6 +148,28 @@ function analyze(samples, sampleRate, opts = {}) {
   for (let b = 0; b < BAND_NAMES.length; b++) { const fc = (BAND_EDGES[b] + BAND_EDGES[b + 1]) / 2; csum += fc * longBands[b]; cden += longBands[b]; }
   const centroid = Math.round(csum / (cden || 1));
 
+  // SECTION EVOLUTION: how the element CHANGES through the song — per time window
+  // (opts.sectionSec, default 10s ≈ 5 bars at 124bpm): loudness + low/high balance,
+  // so "the bass opens up after the breakdown" is a measured fact, not a feel
+  const sectionSec = opts.sectionSec || 10;
+  const secAgg = [];
+  for (const f of frames) {
+    const si = Math.floor(f.tSec / sectionSec);
+    if (!secAgg[si]) secAgg[si] = { n: 0, rmsSq: 0, low: 0, high: 0, total: 0 };
+    const a = secAgg[si];
+    a.n++;
+    a.rmsSq += Math.pow(10, f.rmsDb / 10);
+    const e = f.bands;
+    const tot = e.reduce((x, y) => x + y, 0) || 1e-12;
+    a.low += (e[0] + e[1] + e[2]) / tot; a.high += (e[6] + e[7] + e[8] + e[9]) / tot; a.total += tot;
+  }
+  const sections = secAgg.map((a, i) => a && a.n ? {
+    fromSec: Math.round(i * sectionSec), toSec: Math.round((i + 1) * sectionSec),
+    rmsDb: db(a.rmsSq / a.n),
+    lowRatio: Math.round((a.low / a.n) * 100) / 100,
+    highRatio: Math.round((a.high / a.n) * 100) / 100,
+  } : null).filter(Boolean);
+
   // ACTIVE SECTIONS: where in the file the signal is actually audible (> -48 dB),
   // merged into ranges — with the song tempo this becomes "plays bars 9–16, 33–48"
   const frameSec = N / sampleRate;
@@ -195,6 +217,7 @@ function analyze(samples, sampleRate, opts = {}) {
     highRatio: Math.round(highRatio * 100) / 100,
     temporal: { attackDb, sustainDb, tailDb, plucky, sustained, frames: env.length },
     activeRanges: activeRanges.map((r) => ({ fromSec: Math.round(r.fromSec * 100) / 100, toSec: Math.round(r.toSec * 100) / 100 })),
+    sections,
     spectrogram: frames.slice(0, 24),   // short-term: per-frame bands + envelope (capped)
     character: labels,
     summary: labels.length ? labels.join(", ") : "neutral",

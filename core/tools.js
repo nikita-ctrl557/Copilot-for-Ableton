@@ -44,9 +44,9 @@ async function decodeAudioPath(file) {
     } finally { try { fs.unlinkSync(tmp); } catch {} }
   }
 }
-async function analyzeAudioPath(file) {
+async function analyzeAudioPath(file, opts) {
   const { samples, sampleRate } = await decodeAudioPath(file);
-  return spectral.analyze(samples, sampleRate, { fftSize: 4096 });
+  return spectral.analyze(samples, sampleRate, { fftSize: 4096, ...(opts || {}) });
 }
 // one bar in seconds: tempo is quarter-note BPM; a bar is sigNum beats of 4/sigDenom
 // quarters each (6/8 at 120 = 3s, not 6s)
@@ -1262,10 +1262,11 @@ async function dispatchInner(name, input, { live }) {
       if (!tempo) { try { const s = await remoteClient.session(); if (s && s.ok) { tempo = s.tempo; sigNum = (s.timeSignature && s.timeSignature[0]) || 4; sigDenom = (s.timeSignature && s.timeSignature[1]) || 4; } } catch (e) {} }
       let keyObj = null;
       try { keyObj = await songKey.detect(); } catch (e) {}
+      const barSec = (60 / (tempo || 120)) * (sigNum || 4);
       const rows = [];
       for (const f of rec.files) {
         try {
-          const prof = await analyzeAudioPath(f.file);
+          const prof = await analyzeAudioPath(f.file, { sectionSec: barSec * 8 }); // 8-bar evolution windows
           // tuning vs the song key — this is how "the kick is slightly off in G minor"
           // becomes a measured fact (only meaningful for low/tonal elements)
           const tuning = songKey.tuningInfo(prof.fundamentalHz, keyObj);
@@ -1276,6 +1277,9 @@ async function dispatchInner(name, input, { live }) {
             temporal: { plucky: prof.temporal.plucky, sustained: prof.temporal.sustained },
             playsAt: rangesToBars(prof.activeRanges, tempo, sigNum, sigDenom),
             tuning: tuning || undefined,
+            // through-song evolution: per-8-bar loudness + spectral balance — how the
+            // element CHANGES across the arrangement, not just its average
+            evolution: (prof.sections || []).map((s) => `bars ${Math.floor(s.fromSec / barSec) + 1}–${Math.max(1, Math.round(s.toSec / barSec))}: ${s.rmsDb}dB, low ${Math.round(s.lowRatio * 100)}%, high ${Math.round(s.highRatio * 100)}%`),
             character: prof.summary,
           });
         } catch (e) { rows.push({ track: f.track, name: f.name, error: String(e.message || e) }); }

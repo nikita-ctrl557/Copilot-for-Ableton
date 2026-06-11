@@ -254,9 +254,27 @@ function render(mem, live, changes, sess) {
     const names = require("./customSkills").list().map((s) => s.name);
     if (names.length) skillLine = ("USER SKILLS (their own rules — read with custom_skill when referenced by name or topically relevant; they OUTRANK built-ins): " + names.join(", ")).slice(0, 400);
   } catch {}
+  // FIRST CONTACT: this set already contains music (session clips and/or an
+  // arrangement) and the diary knows NOTHING about it — the agent must LISTEN to
+  // the whole thing before thinking, not improvise on top of unheard material.
+  let firstContact = "";
+  try {
+    const hasClips = (live || []).some((t) => t.clips && t.clips.length);
+    const arrBeats = sess && sess.arrangementBeats ? +sess.arrangementBeats : 0;
+    const knowsNothing = !Object.keys(mem.tracks || {}).length && !(mem.log || []).length;
+    if (knowsNothing && (hasClips || arrBeats > 0)) {
+      const arrBars = arrBeats > 0 ? Math.ceil(arrBeats / 4) : 0;
+      firstContact = "⚠ FIRST CONTACT — EXISTING MATERIAL YOU HAVE NEVER HEARD: this set already contains music" +
+        (arrBars ? ` (arrangement runs to bar ${arrBars})` : " (session clips)") +
+        ". BEFORE answering production questions or changing ANYTHING: deep-listen to ALL of it — place_meters → record_tracks " +
+        (arrBars ? `bars:${Math.min(128, arrBars)} from_start:true (the WHOLE arrangement, not a taste)` : "for the full loop length") +
+        " → analyze_recordings (per element: spectrum, tuning vs key, playsAt = where it plays, evolution = how its loudness/frequency balance CHANGES per 8 bars, cross-track relations) → remember{} each element's role + character. THEN think. Skipping straight to building on unheard material is the failure mode.";
+    }
+  } catch {}
   return [
     "## PROJECT STATE (live snapshot + your saved memory — you are ALREADY aware of this; don't re-query unless you're about to act on specifics)",
     _sessionNote ? "SESSION: " + _sessionNote : "",
+    firstContact,
     liveNow,
     dir ? "DIRECTION: " + dir : "DIRECTION: (not set — commit to one and call remember{direction})",
     favLine,

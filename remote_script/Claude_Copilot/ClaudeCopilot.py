@@ -1243,10 +1243,22 @@ class ClaudeCopilot(ControlSurface):
                     break
         except Exception:
             pass
+        # how far the ARRANGEMENT runs (beats) — first-contact listening must cover
+        # the WHOLE timeline, not a taste of it
+        arr_beats = 0.0
+        try:
+            for t in song.tracks:
+                for c in t.arrangement_clips:
+                    e = float(c.end_time)
+                    if e > arr_beats:
+                        arr_beats = e
+        except Exception:
+            pass
         return {"ok": True, "tempo": song.tempo,
                 "timeSignature": [song.signature_numerator, song.signature_denominator],
                 "isPlaying": bool(song.is_playing),
                 "trackCount": len(song.tracks), "sceneCount": len(song.scenes),
+                "arrangementBeats": arr_beats,
                 "selectedTrack": sel, "key": self._key_str()}
 
     def _tracks(self):
