@@ -84,10 +84,22 @@ function norm(s) { return String(s || "").toLowerCase().trim(); }
 function get(name) {
   const q = norm(name);
   if (!q) return null;
-  return TECHNIQUES.find((t) => norm(t.name) === q)
+  const exact = TECHNIQUES.find((t) => norm(t.name) === q)
     || TECHNIQUES.find((t) => t.aka.some((a) => norm(a) === q))
     || TECHNIQUES.find((t) => norm(t.name).includes(q) || q.includes(norm(t.name)) || t.aka.some((a) => norm(a).includes(q) || q.includes(norm(a))))
-    || TECHNIQUES.find((t) => norm(t.when).includes(q)) || null;
+    || TECHNIQUES.find((t) => norm(t.when).includes(q));
+  if (exact) return exact;
+  // problem-search: stem-tolerant token match ("wider" hits "width"/"widening") —
+  // a query token matches when it shares a 4+ char prefix with any haystack word
+  const qWords = q.split(/\s+/).filter((w) => w.length >= 4);
+  if (!qWords.length) return null;
+  let best = null, bestHits = 0;
+  for (const t of TECHNIQUES) {
+    const hay = (norm(t.name) + " " + t.aka.map(norm).join(" ") + " " + norm(t.when)).split(/[^a-z0-9]+/);
+    const hits = qWords.filter((w) => hay.some((h) => h.length >= 4 && (h.startsWith(w.slice(0, 4)) || w.startsWith(h.slice(0, 4))))).length;
+    if (hits > bestHits) { bestHits = hits; best = t; }
+  }
+  return bestHits ? best : null;
 }
 
 function list() { return TECHNIQUES.map((t) => ({ name: t.name, when: t.when })); }
