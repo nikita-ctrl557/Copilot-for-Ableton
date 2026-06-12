@@ -15,6 +15,9 @@ const pluginSkills = require("./pluginSkills");
 const genreSkills = require("./genreSkills");
 const soundLibrary = require("./soundLibrary");
 const customSkills = require("./customSkills");
+const midiFile = require("./midiFile");
+const progressions = require("./progressions");
+const techniqueSkills = require("./techniqueSkills");
 const songKey = require("./songKey");
 const audioToMidi = require("./audioToMidi");
 const remoteClient = require("./remoteClient");
@@ -295,6 +298,18 @@ const TOOLS = [
       character: { type: "string", description: "a vibe/adjective the user used, e.g. 'thick', 'fat', 'warm', 'punchy', 'reese', 'aggressive' — returns ordered concrete param moves" },
       genre: { type: "string", description: "a genre/style, e.g. 'deep house', 'uk garage', '2010 festival', 'trap', 'lo-fi' — returns a per-role synth + FX palette" }
     }, additionalProperties: false } },
+
+  { name: "import_midi", description: "IMPORT A .mid FILE INTO A CLIP — the user can attach/drag MIDI files (chord packs, melodies, beats they own) and any file lands on a track: parses Standard MIDI (format 0/1), writes the notes into the clip, and reports what it contains (note count, bars, pitch range, embedded tempo, DETECTED KEY from its pitch content). transpose shifts everything by semitones (e.g. to move an imported progression into the song's key). Use for: 'use this chord pack file', 'import this melody', building a library workflow with midi_library.",
+    input_schema: { type: "object", properties: { path: { type: "string", description: "absolute path to the .mid file (from an attachment or midi_library)" }, track: { type: "integer" }, slot: { type: "integer", default: 0 }, transpose: { type: "integer", default: 0, description: "semitones to shift on import" } }, required: ["path", "track"], additionalProperties: false } },
+
+  { name: "midi_library", description: "THE USER'S MIDI LIBRARY — index and search whole FOLDERS of .mid files (chord packs, MIDI collections the user owns; sample packs ship with thousands). action:'index' with a folder path scans it recursively (caps at 2000 files), analyses each (bars, notes, pitch range, detected key) and saves the catalog. action:'search' finds files by name/key/size ('minor chord progressions', 'Am'). Then import_midi any result into a track. The catalog persists at ~/.claude-copilot/midi-library.json.",
+    input_schema: { type: "object", properties: { action: { type: "string", enum: ["index", "search", "stats"], default: "search" }, folder: { type: "string", description: "for action:'index' — absolute folder path to scan" }, query: { type: "string", description: "for action:'search' — name fragment and/or key like 'Am' / 'F# minor'" }, limit: { type: "integer", default: 20 } }, additionalProperties: false } },
+
+  { name: "progression_library", description: "A 61-PROGRESSION CHORD LIBRARY spanning house/deep/tech, trance/melodic-techno, pop/EDM, trap/hip-hop/drill, RnB/neo-soul/gospel, DnB/garage/dubstep, ambient/cinematic, jazz, afro/amapiano/latin, synthwave — each with roman numerals + mode (drop straight into write_chords), genre + mood tags, and where you've heard the move ('the trance progression', 'backdoor cadence', 'royal road'). Browse by genre and/or mood; use when the usual i–VI–III–VII is getting stale or the user names a vibe ('something church-y', 'noir', 'tearjerker').",
+    input_schema: { type: "object", properties: { genre: { type: "string" }, mood: { type: "string" }, name: { type: "string", description: "fetch one by name" } }, additionalProperties: false } },
+
+  { name: "technique_skill", description: "THE PRODUCTION-TECHNIQUE CANON — 23 named industry-standard moves as executable recipes against your actual tools: parallel (NY) compression, sidechained reverb, Haas widening, gated reverb, pre-delay pocket, 808 glide, white-noise risers, tape stop, dub delay throws, M/S master EQ, pumping pads, vocal chops, low-pass intros, ghost-kick rumble, snare layering, call-and-response, drop-everything-but, octave bass layering, vinyl lo-fi bed, stutter fills, automated wobble rate, texture pad under the drop, reverse vocal swell. Search by name OR by what you're trying to achieve ('wider', 'huge but controlled reverb', 'transition'). No args = the full menu with when-to-use lines.",
+    input_schema: { type: "object", properties: { name: { type: "string", description: "technique name, alias, or the problem you're solving" } }, additionalProperties: false } },
 
   { name: "custom_skill", description: "THE USER'S OWN SKILLS — named text files they imported or wrote in settings (⚙ → Skills): house rules, personal recipes, reference specs ('my kick chain', 'label mix spec'). PROJECT STATE lists the available names. Read one when the user references it by name OR its topic matches the task. USER SKILLS OUTRANK every built-in skill when they conflict — they are the user's law. No args = list all; name = read one; name+content = save/update (when the user asks you to remember a way of working as a skill); name+delete_skill = remove.",
     input_schema: { type: "object", properties: {
@@ -1016,6 +1031,87 @@ async function dispatchInner(name, input, { live }) {
         : (spec ? "" : "Loudness only (ClaudeMeter not reporting spectrum yet).");
       return { result: { track, metered, audible, tooQuiet: tooQuiet || undefined, peakDb: Math.round(peakDb * 10) / 10, rmsDb: Math.round(rmsDb * 10) / 10, spectral: spec, note }, label: "Auditioning", detail: `#${track} ${Math.round(peakDb)}dB ${!audible ? "(silent!)" : tooQuiet ? "(too low!)" : ""}` };
     }
+    case "import_midi": {
+      const file = String(input.path || "");
+      if (!file || !fs.existsSync(file)) return { result: { ok: false, error: "file not found: " + file }, label: "Importing MIDI", detail: "missing" };
+      let parsed;
+      try { parsed = midiFile.parseMidi(fs.readFileSync(file)); } catch (e) { return { result: { ok: false, error: "couldn't parse MIDI: " + String(e.message || e) }, label: "Importing MIDI", detail: "parse failed" }; }
+      if (!parsed.notes.length) return { result: { ok: false, error: "the file contains no notes" }, label: "Importing MIDI", detail: "empty" };
+      const tr = input.transpose || 0;
+      const notes = parsed.notes.map((n) => ({ ...n, pitch: Math.max(0, Math.min(127, n.pitch + tr)) }));
+      const det = keymod.detectKey(keymod.histFromPitches(notes.map((n) => n.pitch)));
+      const w = await live.call("add_notes", { track: input.track, slot: input.slot ?? 0, lengthBeats: parsed.bars * 4, notes, overwrite: true, name: (parsed.name || path.basename(file, ".mid")).slice(0, 40) });
+      noteEdit(input.track);
+      return { result: { ok: true, ...w, file: path.basename(file), notes: notes.length, bars: parsed.bars, pitchRange: parsed.pitchRange, embeddedTempo: parsed.tempoBpm, detectedKey: det.key, transposed: tr,
+        note: "Imported. Check detectedKey vs the song key (LIVE NOW) — re-import with transpose if they clash. Then audition." },
+        label: "Importing MIDI", detail: `${path.basename(file)} — ${notes.length} notes, ${parsed.bars} bars, ${det.key}` };
+    }
+
+    case "midi_library": {
+      const CAT = path.join(os.homedir(), ".claude-copilot", "midi-library.json");
+      const loadCat = () => { try { return JSON.parse(fs.readFileSync(CAT, "utf8")); } catch { return { files: [] }; } };
+      if (input.action === "index") {
+        const folder = String(input.folder || "");
+        if (!folder || !fs.existsSync(folder)) return { result: { ok: false, error: "folder not found: " + folder }, label: "MIDI library", detail: "bad folder" };
+        const found = [];
+        const walk = (d, depth) => {
+          if (depth > 6 || found.length >= 2000) return;
+          let ents = []; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+          for (const e of ents) {
+            if (found.length >= 2000) break;
+            const p = path.join(d, e.name);
+            if (e.isDirectory()) walk(p, depth + 1);
+            else if (/\.midi?$/i.test(e.name)) found.push(p);
+          }
+        };
+        walk(folder, 0);
+        const cat = loadCat();
+        const known = new Set(cat.files.map((f) => f.path));
+        let added = 0, failed = 0;
+        for (const p of found) {
+          if (known.has(p)) continue;
+          try {
+            const m = midiFile.parseMidi(fs.readFileSync(p));
+            if (!m.notes.length) { failed++; continue; }
+            const det = keymod.detectKey(keymod.histFromPitches(m.notes.map((n) => n.pitch)));
+            cat.files.push({ path: p, name: path.basename(p, path.extname(p)), notes: m.notes.length, bars: m.bars, key: det.key, lo: m.pitchRange[0], hi: m.pitchRange[1] });
+            added++;
+          } catch { failed++; }
+        }
+        try { fs.mkdirSync(path.dirname(CAT), { recursive: true }); fs.writeFileSync(CAT, JSON.stringify(cat)); } catch {}
+        return { result: { ok: true, scanned: found.length, added, failed, total: cat.files.length, note: added ? "Catalog updated — midi_library action:'search' to find files, import_midi to use one." : "nothing new found" }, label: "MIDI library", detail: `indexed ${added} new (${cat.files.length} total)` };
+      }
+      const cat = loadCat();
+      if (input.action === "stats" || !input.query) {
+        const keys = {};
+        for (const f of cat.files) keys[f.key] = (keys[f.key] || 0) + 1;
+        return { result: { ok: true, total: cat.files.length, byKey: keys, note: cat.files.length ? "search with a name fragment and/or key" : "library empty — ask the user for a folder of .mid files (chord packs etc.) and index it" }, label: "MIDI library", detail: `${cat.files.length} files` };
+      }
+      const q = String(input.query).toLowerCase();
+      const words = q.split(/\s+/).filter(Boolean);
+      const hits = cat.files.filter((f) => words.every((w) => f.name.toLowerCase().includes(w) || f.key.toLowerCase().includes(w) || f.key.toLowerCase().startsWith(w))).slice(0, input.limit ?? 20);
+      return { result: { ok: true, total: cat.files.length, hits, note: hits.length ? "import_midi any hit's path into a track" : "no matches — try fewer words or index more folders" }, label: "MIDI library", detail: `${hits.length} match(es) of ${cat.files.length}` };
+    }
+
+    case "progression_library": {
+      if (input.name) {
+        const pr = progressions.get(input.name);
+        if (!pr) return { result: { ok: false, error: "no progression named that", names: progressions.PROGRESSIONS.map((p) => p.name) }, label: "Progression library", detail: "not found" };
+        return { result: { ok: true, ...pr, play: `write_chords chords:${JSON.stringify(pr.romans)} mode:'${pr.mode}' (pick the song's key)` }, label: "Progression library", detail: pr.name };
+      }
+      const hits = progressions.search({ genre: input.genre, mood: input.mood });
+      return { result: { ok: true, count: hits.length, progressions: hits, note: "each entry plays directly: write_chords chords:<romans> mode:<mode> in the song's key. VARY between requests — don't reuse the last one." }, label: "Progression library", detail: `${hits.length} progression(s)${input.genre ? " · " + input.genre : ""}${input.mood ? " · " + input.mood : ""}` };
+    }
+
+    case "technique_skill": {
+      if (!input.name) return { result: { ok: true, techniques: techniqueSkills.list(), note: "fetch one by name or by the problem ('wider', 'pump', 'transition')" }, label: "Technique canon", detail: techniqueSkills.list().length + " techniques" };
+      const t = techniqueSkills.get(input.name);
+      if (t) return { result: { ok: true, ...t, note: "Apply the recipe with the real tools (sends/returns via set_mixer sends, params via set_device_param, movement via write_automation/set_modulation), then AUDITION." }, label: "Technique", detail: t.name };
+      const learned = soundLibrary.get(input.name);
+      if (learned) return { result: { ok: true, ...learned, source: "learned library" }, label: "Technique (learned)", detail: learned.name };
+      return { result: { ok: false, known: techniqueSkills.list().map((x) => x.name), note: "not in the canon — web_search the technique, then SAVE it via sound_recipe so it's known next time" }, label: "Technique", detail: "unknown — research it" };
+    }
+
     case "custom_skill": {
       if (input.name && input.delete_skill) {
         const r = customSkills.remove(input.name);

@@ -143,7 +143,7 @@
       <span class="ic-btn" id="paste" title="Paste from clipboard" style="align-self:center;">📋</span>
       <button class="send" id="send">Send</button>
     </div>
-    <input type="file" id="fileinput" accept=".wav,.aif,.aiff,.mp3,.m4a,.flac,.ogg,audio/*" style="display:none;" />
+    <input type="file" id="fileinput" accept=".wav,.aif,.aiff,.mp3,.m4a,.flac,.ogg,.mid,.midi,audio/*" style="display:none;" />
   </div>
 
   <div id="working" class="working hidden"><span class="tdots"><i></i><i></i><i></i></span> <span id="working-label">Thinking…</span></div>
@@ -494,7 +494,10 @@ function uploadAudio(f){
       voiceBusy=false;
       if(!(j&&j.ok)){ addMsg("assistant","⚠ upload failed: "+((j&&j.error)||"unknown")); return; }
       const curTxt=$("input").value.trim();
-      $("input").value=(curTxt?curTxt+" ":"")+"[attached audio: "+j.path+"]"+(curTxt?"":" — listen to this and tell me what you hear.");
+      const isMidi=/\.midi?$/i.test(j.path);
+      $("input").value=(curTxt?curTxt+" ":"")+(isMidi
+        ? "[attached midi: "+j.path+"]"+(curTxt?"":" — import this into a fitting track (in my song's key).")
+        : "[attached audio: "+j.path+"]"+(curTxt?"":" — listen to this and tell me what you hear."));
       autosize(); $("input").focus();
     })
     .catch(e=>{ voiceBusy=false; addMsg("assistant","⚠ upload failed: "+e); });
